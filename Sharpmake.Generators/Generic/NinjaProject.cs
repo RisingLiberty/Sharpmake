@@ -552,11 +552,13 @@ namespace Sharpmake.Generators.Generic
                 string extension = Path.GetExtension(sourceFile);
                 if (context.Project.SourceFilesCompileExtensions.Contains(extension))
                 {
-                    string fileStem = Path.GetFileNameWithoutExtension(sourceFile);
+                    string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
+                    string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
+                    string fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
 
                     string outputExtension = context.Configuration.Target.GetFragment<Compiler>() == Compiler.MSVC ? ".obj" : ".o";
 
-                    string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileStem)}{outputExtension}";
+                    string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileDir, fileStem)}{outputExtension}";
                     objFilePaths.Add(CreateNinjaFilePath(objPath));
                 }
             }
