@@ -149,106 +149,7 @@ namespace Sharpmake
             throw new NotImplementedException("No WindowsTargetPlatformVersion associated with " + devEnv);
         }
 
-        public static void InitializeForNinja()
-        {
-            const string MsvcCompilerName = "cl.exe";
-            const string ClangCompilerName = "clang.exe";
-            const string GccCompilerName = "g++.exe";
-            const string MsvcLinkerName = "link.exe";
-            const string ClangLinkerName = "clang.exe";
-            const string GccLinkerName = "g++.exe";
-
-            const string MsvcArchiverName = "lib.exe";
-            const string ClangArchiverName = "llvm-ar.exe";
-            const string ClangRanLibName = "llvm-ranlib.exe";
-            const string GccArchiverName = "ar.exe";
-
-            const string NinjaName = "ninja.exe";
-
-            string MsvcCompilerPath = "";
-            string ClangCompilerPath = "";
-            string GccCompilerPath = "";
-            string MsvcLinkerPath = "";
-            string ClangLinkerPath = "";
-            string GccLinkerPath = "";
-
-            string MsvcArchiver = "";
-            string ClangArchiver = "";
-            string ClangRanLib = "";
-            string GccArchiver = "";
-
-            string NinjaPath = "";
-
-            var envPath = Environment.GetEnvironmentVariable("PATH");
-            string[] paths = envPath.Split(';');
-
-            foreach (var path in paths)
-            {
-                if (!Directory.Exists(path))
-                {
-                    continue;
-                }
-
-                List<string> files = Directory.EnumerateFiles(path).ToList();
-
-                foreach (string file in files)
-                {
-                    string filename = Path.GetFileName(file);
-
-                    if (filename == MsvcCompilerName)
-                    {
-                        MsvcCompilerPath = file;
-                    }
-                    if (filename == ClangCompilerName)
-                    {
-                        ClangCompilerPath = file;
-                    }
-                    if (filename == GccCompilerName)
-                    {
-                        GccCompilerPath = file;
-                    }
-                    if (filename == MsvcLinkerName)
-                    {
-                        MsvcLinkerPath = file;
-                    }
-                    if (filename == ClangLinkerName)
-                    {
-                        ClangLinkerPath = file;
-                    }
-                    if (filename == GccLinkerName)
-                    {
-                        GccLinkerPath = file;
-                    }
-                    if (filename == MsvcArchiverName)
-                    {
-                        MsvcArchiver = file;
-                    }
-                    if (filename == ClangArchiverName)
-                    {
-                        ClangArchiver = file;
-                    }
-                    if (filename == ClangRanLibName)
-                    {
-                        ClangRanLib = file;
-                    }
-                    if (filename == GccArchiverName)
-                    {
-                        GccArchiver = file;
-                    }
-                    if (filename == NinjaName)
-                    {
-                        NinjaPath = file;
-                    }
-                }
-            }
-
-            SetCompilerPaths(Compiler.MSVC, MsvcCompilerPath, MsvcLinkerPath, MsvcArchiver, "");
-            SetCompilerPaths(Compiler.Clang, ClangCompilerPath, ClangLinkerPath, ClangArchiver, ClangRanLib);
-            SetCompilerPaths(Compiler.GCC, GccCompilerPath, GccLinkerPath, GccArchiver, "");
-            SetNinjaPath(NinjaPath);
-        }
-
-        private static void SetCompilerPaths(Compiler compiler, string compilerPath, string linkerPath, string archiverPath, string ranLibPath)
+        public static void SetCompilerPaths(Compiler compiler, string compilerPath, string linkerPath, string archiverPath, string ranLibPath)
         {
             s_compilerInfo.GetValueOrAdd(compiler, new CompilerInfo(compiler, compilerPath, linkerPath, archiverPath, ranLibPath));
         }
@@ -258,7 +159,7 @@ namespace Sharpmake
             return s_compilerInfo[compiler];
         }
 
-        private static void SetNinjaPath(string path)
+        public static void SetNinjaPath(string path)
         {
             s_ninjaPath = path;
         }
