@@ -251,6 +251,7 @@ namespace Sharpmake.Generators.Generic
             }
             return result;
         }
+        
         public void Generate(
         Builder builder,
         Project project,
@@ -606,7 +607,7 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"{Template.RuleBegin} {Template.RuleStatement.CompileCppFile(context)}");
             fileGenerator.WriteLine($"  depfile = ${Template.BuildStatement.DepFile(context)}");
             fileGenerator.WriteLine($"  deps = gcc");
-            fileGenerator.WriteLine($"{Template.CommandBegin}{GetCompilerPath(context)} ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}\"{GetCompilerPath(context)}\" ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
             fileGenerator.WriteLine($"{Template.DescriptionBegin} Building C++ object $out");
             fileGenerator.WriteLine($"");
 
@@ -618,7 +619,7 @@ namespace Sharpmake.Generators.Generic
 
             fileGenerator.WriteLine($"# Rule for linking C++ objects");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C \"${Template.BuildStatement.PreBuild(context)} && {GetLinkerPath(context)} ${Template.BuildStatement.LinkerImplicitFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerLibraries(context)} $in && ${Template.BuildStatement.PostBuild(context)}\"");
+            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C \"${Template.BuildStatement.PreBuild(context)} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.LinkerImplicitFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} $in && ${Template.BuildStatement.PostBuild(context)}\"");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}Linking C++ {outputType} ${Template.BuildStatement.TargetFile(context)}");
             fileGenerator.WriteLine($"  restat = $RESTAT");
             fileGenerator.WriteLine($"");
@@ -678,9 +679,13 @@ namespace Sharpmake.Generators.Generic
             linkStatement.ImplicitLinkerFlags = GetImplicitLinkerFlags(context, outputPath);
             linkStatement.Flags = GetLinkerFlags(context);
             linkStatement.ImplicitLinkerPaths = GetImplicitLinkPaths(context);
-            linkStatement.LinkerPaths = GetLinkerPaths(context);
+            Strings linkerPaths = GetLinkerPaths(context);
+            linkerPaths.AddRange(context.Configuration.DependenciesLibraryPaths);
+            linkStatement.LinkerPaths = linkerPaths;
             linkStatement.ImplicitLinkerLibs = GetImplicitLinkLibraries(context);
-            linkStatement.LinkerLibs = GetLinkLibraries(context);
+            Strings linkerLibs = GetLinkLibraries(context);
+            linkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
+            linkStatement.LinkerLibs = linkerLibs;
             linkStatement.PreBuild = GetPreBuildCommands(context);
             linkStatement.PostBuild = GetPostBuildCommands(context);
             linkStatement.TargetPdb = context.Configuration.LinkerPdbFilePath;
@@ -931,6 +936,20 @@ namespace Sharpmake.Generators.Generic
         private Strings GetLinkLibraries(GenerationContext context)
         {
             return new Strings(context.Configuration.LibraryFiles);
+        }
+
+        private Strings ConvertLibraryDependencyFiles(GenerationContext context)
+        {
+            Strings result = new Strings();
+            foreach (var libFile in context.Configuration.DependenciesLibraryFiles)
+            {
+                string stem = Path.GetFileNameWithoutExtension(libFile);
+                string extension = Path.GetExtension(libFile);
+
+                string fullFileName = $"{stem}_{context.Configuration.Name}_{context.Compiler}{extension}";
+                result.Add(fullFileName);
+            }
+            return result;
         }
 
         private string GetPreBuildCommands(GenerationContext context)
