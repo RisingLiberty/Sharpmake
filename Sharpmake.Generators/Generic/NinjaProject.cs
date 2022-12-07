@@ -146,11 +146,11 @@ namespace Sharpmake.Generators.Generic
             {
                 var fileGenerator = new FileGenerator();
 
-                string defines = MergeMultipleFlagsToString(Defines, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.Define));
+                string defines = MergeMultipleFlagsToString(Defines, false, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.Define));
                 string implicitCompilerFlags = MergeMultipleFlagsToString(ImplicitCompilerFlags);
                 string compilerFlags = MergeMultipleFlagsToString(CompilerFlags);
-                string includes = MergeMultipleFlagsToString(Includes, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.Include));
-                string systemIncludes = MergeMultipleFlagsToString(SystemIncludes, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.SystemInclude));
+                string includes = MergeMultipleFlagsToString(Includes, true, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.Include));
+                string systemIncludes = MergeMultipleFlagsToString(SystemIncludes, true, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.SystemInclude));
 
                 fileGenerator.WriteLine($"{Template.BuildBegin}{Name}: {Template.RuleStatement.CompileCppFile(Context)} {Input}");
 
@@ -197,11 +197,11 @@ namespace Sharpmake.Generators.Generic
 
                 string objPaths = MergeMultipleFlagsToString(ObjFilePaths);
                 string implicitLinkerFlags = MergeMultipleFlagsToString(ImplicitLinkerFlags);
-                string implicitLinkerPaths = MergeMultipleFlagsToString(ImplicitLinkerPaths, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
-                string implicitLinkerLibs = MergeMultipleFlagsToString(ImplicitLinkerLibs, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
+                string implicitLinkerPaths = MergeMultipleFlagsToString(ImplicitLinkerPaths, true, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
+                string implicitLinkerLibs = MergeMultipleFlagsToString(ImplicitLinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
                 string linkerFlags = MergeMultipleFlagsToString(Flags);
-                string libraryPaths = MergeMultipleFlagsToString(LinkerPaths, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
-                string libraryFiles = MergeMultipleFlagsToString(LinkerLibs, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
+                string libraryPaths = MergeMultipleFlagsToString(LinkerPaths, true, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
+                string libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
 
                 fileGenerator.WriteLine($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
 
@@ -223,7 +223,7 @@ namespace Sharpmake.Generators.Generic
 
         private static readonly string ProjectExtension = ".ninja";
 
-        private static string MergeMultipleFlagsToString(Strings options, string perOptionPrefix = "")
+        private static string MergeMultipleFlagsToString(Strings options, bool addQuotes = false, string perOptionPrefix = "")
         {
             string result = "";
             foreach (var option in options)
@@ -233,11 +233,21 @@ namespace Sharpmake.Generators.Generic
                     continue;
                 }
 
-                result += $"{perOptionPrefix}\"{option}\" ";
+                result += " ";
+                result += perOptionPrefix;
+                if (addQuotes)
+                {
+                    result += "\"";
+                }
+                result += option;
+                if (addQuotes)
+                {
+                    result += "\"";
+                }
             }
             return result;
         }
-        private static string MergeMultipleFlagsToString(OrderableStrings options, string perOptionPrefix = "")
+        private static string MergeMultipleFlagsToString(OrderableStrings options, bool addQuotes = false, string perOptionPrefix = "")
         {
             string result = "";
             foreach (var option in options)
@@ -247,7 +257,17 @@ namespace Sharpmake.Generators.Generic
                     continue;
                 }
 
-                result += $"{perOptionPrefix}\"{option}\" ";
+                result += " ";
+                result += perOptionPrefix;
+                if (addQuotes)
+                {
+                    result += "\"";
+                }
+                result += option;
+                if (addQuotes)
+                {
+                    result += "\"";
+                }
             }
             return result;
         }
@@ -273,7 +293,10 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 WritePerConfigFile(context, filesToCompile, generatedFiles, skipFiles);
-                WriteCompilerDatabaseFile(context);
+                if (config.NinjaGenerateCompilerDB)
+                {
+                    WriteCompilerDatabaseFile(context);
+                }
             }
 
             // the second pass uses these files to create a project file where the files can be build
@@ -848,22 +871,14 @@ namespace Sharpmake.Generators.Generic
                 switch (context.Configuration.Target.GetFragment<Compiler>())
                 {
                     case Compiler.MSVC:
-                        linkPath.Add("\"D:/Tools/MSVC/install/14.29.30133/lib/x64\"");
-                        linkPath.Add("\"D:/Tools/MSVC/install/14.29.30133/atlmfc/lib/x64\"");
-                        linkPath.Add("\"D:/Tools/Windows SDK/10.0.19041.0/lib/ucrt/x64\"");
-                        linkPath.Add("\"D:/Tools/Windows SDK/10.0.19041.0/lib/um/x64\"");
+                        linkPath.Add("D:/Tools/MSVC/install/14.29.30133/lib/x64");
+                        linkPath.Add("D:/Tools/MSVC/install/14.29.30133/atlmfc/lib/x64");
+                        linkPath.Add("D:/Tools/Windows SDK/10.0.19041.0/lib/ucrt/x64");
+                        linkPath.Add("D:/Tools/Windows SDK/10.0.19041.0/lib/um/x64");
                         break;
                     case Compiler.Clang:
-                        linkPath.Add("\"D:/Tools/MSVC/install/14.29.30133/lib/x64\"");
-                        linkPath.Add("\"D:/Tools/MSVC/install/14.29.30133/atlmfc/lib/x64\"");
-                        linkPath.Add("\"D:/Tools/Windows SDK/10.0.19041.0/lib/ucrt/x64\"");
-                        linkPath.Add("\"D:/Tools/Windows SDK/10.0.19041.0/lib/um/x64\"");
                         break;
                     case Compiler.GCC:
-                        //linkPath.Add("\"D:/Tools/MSVC/install/14.29.30133/lib/x64\"");
-                        //linkPath.Add("\"D:/Tools/MSVC/install/14.29.30133/atlmfc/lib/x64\"");
-                        //linkPath.Add("\"D:/Tools/Windows SDK/10.0.19041.0/lib/ucrt/x64\"");
-                        //linkPath.Add("\"D:/Tools/Windows SDK/10.0.19041.0/lib/um/x64\"");
                         break;
                 }
             }

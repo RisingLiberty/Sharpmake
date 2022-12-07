@@ -2338,6 +2338,8 @@ namespace Sharpmake
             public Strings ResolvedSourceFilesWithCompileAsWinRTOption = new Strings();
             public Strings ResolvedSourceFilesWithExcludeAsWinRTOption = new Strings();
 
+            public bool NinjaGenerateCompilerDB = false;
+
             public bool NeedsAppxManifestFile = false;
             public string AppxManifestFilePath = "[conf.TargetPath]/[project.Name].appxmanifest";
 
