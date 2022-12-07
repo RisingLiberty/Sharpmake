@@ -233,7 +233,7 @@ namespace Sharpmake.Generators.Generic
                     continue;
                 }
 
-                result += $"{perOptionPrefix}{option} ";
+                result += $"{perOptionPrefix}\"{option}\" ";
             }
             return result;
         }
