@@ -761,6 +761,11 @@ namespace Sharpmake.Generators.Generic
                 case Compiler.Clang:
                     flags.Add(" -c"); // don't auto link
                     flags.Add($" -o\"{ninjaObjPath}\""); // obj output path
+                    if (context.Configuration.NinjaGenerateCodeCoverage)
+                    {
+                        flags.Add("-fprofile-instr-generate");
+                        flags.Add("-fcoverage-mapping");
+                    }
                     break;
                 case Compiler.GCC:
                     flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
