@@ -766,6 +766,14 @@ namespace Sharpmake.Generators.Generic
                         flags.Add("-fprofile-instr-generate");
                         flags.Add("-fcoverage-mapping");
                     }
+                    if (context.Configuration.NinjaEnableAddressSanitizer)
+                    {
+                        flags.Add("-fsanitize=address");
+                    }
+                    if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
+                    {
+                        flags.Add("-fsanitize=undefined");
+                    }
                     break;
                 case Compiler.GCC:
                     flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
@@ -835,6 +843,18 @@ namespace Sharpmake.Generators.Generic
                         if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
                         {
                             flags.Add(" -shared");
+                        }
+                        if (context.Configuration.NinjaGenerateCodeCoverage)
+                        {
+                            flags.Add("-fprofile-instr-generate");
+                        }
+                        if (context.Configuration.NinjaEnableAddressSanitizer)
+                        {
+                            flags.Add("-fsanitize=address");
+                        }
+                        if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
+                        {
+                            flags.Add("-fsanitize=undefined");
                         }
                     }
                     else
