@@ -1544,10 +1544,36 @@ namespace Sharpmake.Generators.Generic
         {
             context.SelectOption
             (
-            Options.Option(Options.Vc.General.DebugInformation.Disable, () => { context.Options["DebugInformationFormat"] = "None"; context.LinkerCommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag; }),
-            Options.Option(Options.Vc.General.DebugInformation.C7Compatible, () => { context.Options["DebugInformationFormat"] = "OldStyle"; context.LinkerCommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag; ; }),
-            Options.Option(Options.Vc.General.DebugInformation.ProgramDatabase, () => { context.Options["DebugInformationFormat"] = "ProgramDatabase"; context.LinkerCommandLineOptions["DebugInformationFormat"] = "-g"; }),
-            Options.Option(Options.Vc.General.DebugInformation.ProgramDatabaseEnC, () => { context.Options["DebugInformationFormat"] = "ProgramDatabase"; context.LinkerCommandLineOptions["DebugInformationFormat"] = "-g"; })
+            Options.Option(Options.Vc.General.DebugInformation.Disable, () => 
+            { 
+                context.Options["DebugInformationFormat"] = "None";
+                context.CommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag;
+                context.LinkerCommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag;
+            }),
+            Options.Option(Options.Vc.General.DebugInformation.C7Compatible, () => 
+            { 
+                context.Options["DebugInformationFormat"] = "OldStyle";
+                context.CommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag; 
+                context.LinkerCommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag;
+            }),
+            Options.Option(Options.Vc.General.DebugInformation.ProgramDatabase, () => 
+            { 
+                context.Options["DebugInformationFormat"] = "ProgramDatabase"; 
+                context.CommandLineOptions["DebugInformationFormat"] = "-g";
+                if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    context.LinkerCommandLineOptions["DebugInformationFormat"] = "-g";
+                }
+            }),
+            Options.Option(Options.Vc.General.DebugInformation.ProgramDatabaseEnC, () => 
+            { 
+                context.Options["DebugInformationFormat"] = "ProgramDatabase";
+                context.CommandLineOptions["DebugInformationFormat"] = "-g";
+                if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    context.LinkerCommandLineOptions["DebugInformationFormat"] = "-g";
+                }
+            })
             );
         }
 
