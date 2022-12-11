@@ -1192,6 +1192,8 @@ namespace Sharpmake.Generators.Generic
             context.Options["LanguageStandard"] = FileGeneratorUtilities.RemoveLineTag;
             context.CommandLineOptions["LanguageStandard"] = FileGeneratorUtilities.RemoveLineTag;
 
+            SelectDebugInformationOptionClang(context, optionsContext);
+
             //https://clang.llvm.org/docs/CommandGuide/clang.html
             string cppLanguageStd = null;
             context.SelectOption
@@ -1537,6 +1539,18 @@ namespace Sharpmake.Generators.Generic
                 );
             }
         }
+
+        private static void SelectDebugInformationOptionClang(IGenerationContext context, ProjectOptionsGenerationContext optionsContext)
+        {
+            context.SelectOption
+            (
+            Options.Option(Options.Vc.General.DebugInformation.Disable, () => { context.Options["DebugInformationFormat"] = "None"; context.LinkerCommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag; }),
+            Options.Option(Options.Vc.General.DebugInformation.C7Compatible, () => { context.Options["DebugInformationFormat"] = "OldStyle"; context.LinkerCommandLineOptions["DebugInformationFormat"] = FileGeneratorUtilities.RemoveLineTag; ; }),
+            Options.Option(Options.Vc.General.DebugInformation.ProgramDatabase, () => { context.Options["DebugInformationFormat"] = "ProgramDatabase"; context.LinkerCommandLineOptions["DebugInformationFormat"] = "-g"; }),
+            Options.Option(Options.Vc.General.DebugInformation.ProgramDatabaseEnC, () => { context.Options["DebugInformationFormat"] = "ProgramDatabase"; context.LinkerCommandLineOptions["DebugInformationFormat"] = "-g"; })
+            );
+        }
+
 
         private static void SelectPreferredToolArchitecture(IGenerationContext context)
         {

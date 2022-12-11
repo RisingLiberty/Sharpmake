@@ -769,10 +769,12 @@ namespace Sharpmake.Generators.Generic
                     if (context.Configuration.NinjaEnableAddressSanitizer)
                     {
                         flags.Add("-fsanitize=address");
+                        context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
                     }
                     if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
                     {
                         flags.Add("-fsanitize=undefined");
+                        context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
                     }
                     break;
                 case Compiler.GCC:
