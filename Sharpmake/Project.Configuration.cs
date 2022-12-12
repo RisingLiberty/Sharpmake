@@ -2342,6 +2342,7 @@ namespace Sharpmake
             public bool NinjaGenerateCodeCoverage = false;
             public bool NinjaEnableAddressSanitizer = false;
             public bool NinjaEnableUndefinedBehaviorSanitizer = false;
+            public bool NinjaEnableFuzzyTesting = false;
 
             public bool NeedsAppxManifestFile = false;
             public string AppxManifestFilePath = "[conf.TargetPath]/[project.Name].appxmanifest";

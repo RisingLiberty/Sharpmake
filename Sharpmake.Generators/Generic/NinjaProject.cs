@@ -776,6 +776,11 @@ namespace Sharpmake.Generators.Generic
                         flags.Add("-fsanitize=undefined");
                         context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
                     }
+                    if (context.Configuration.NinjaEnableFuzzyTesting)
+                    {
+                        flags.Add("-fsanitize=fuzzer");
+                        context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
+                    }
                     break;
                 case Compiler.GCC:
                     flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
@@ -857,6 +862,10 @@ namespace Sharpmake.Generators.Generic
                         if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
                         {
                             flags.Add("-fsanitize=undefined");
+                        }
+                        if (context.Configuration.NinjaEnableFuzzyTesting)
+                        {
+                            flags.Add("-fsanitize=fuzzer");
                         }
                     }
                     else
