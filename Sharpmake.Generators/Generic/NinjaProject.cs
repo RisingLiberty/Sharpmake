@@ -647,12 +647,20 @@ namespace Sharpmake.Generators.Generic
         private void GenerateRules(FileGenerator fileGenerator, GenerationContext context)
         {
             // Compilation
+            string depsValue = "gcc";
+            if (context.Compiler == Compiler.MSVC)
+            {
+                fileGenerator.WriteLine($"msvc_deps_prefix = Note: including file:");
+                fileGenerator.WriteLine($"");
+                depsValue = "msvc";
+            }
+
             fileGenerator.WriteLine($"# Rules to specify how to do things");
             fileGenerator.WriteLine($"");
             fileGenerator.WriteLine($"# Rule for compiling C++ files using {context.Compiler}");
             fileGenerator.WriteLine($"{Template.RuleBegin} {Template.RuleStatement.CompileCppFile(context)}");
-            //fileGenerator.WriteLine($"  depfile = ${Template.BuildStatement.DepFile(context)}");
-            //fileGenerator.WriteLine($"  deps = gcc");
+            fileGenerator.WriteLine($"  depfile = $out.d");
+            fileGenerator.WriteLine($"  deps = {depsValue}");
             fileGenerator.WriteLine($"{Template.CommandBegin}\"{GetCompilerPath(context)}\" ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
             fileGenerator.WriteLine($"{Template.DescriptionBegin} Building C++ object $out");
             fileGenerator.WriteLine($"");
@@ -775,6 +783,7 @@ namespace Sharpmake.Generators.Generic
             switch (context.Configuration.Target.GetFragment<Compiler>())
             {
                 case Compiler.MSVC:
+                    flags.Add("/showIncludes"); // used to generate header dependencies
                     flags.Add("/nologo"); // supress copyright banner in compiler
                     flags.Add("/TP"); // treat all files on command line as C++ files
                     flags.Add(" /c"); // don't auto link
@@ -782,6 +791,9 @@ namespace Sharpmake.Generators.Generic
                     flags.Add($" /FS"); // force async pdb generation
                     break;
                 case Compiler.Clang:
+                    flags.Add(" -MD"); // generate header dependencies
+                    flags.Add(" -MF"); // write the header dependencies to a file
+                    flags.Add($" {ninjaObjPath}.d"); // file to write header dependencies to
                     flags.Add(" -c"); // don't auto link
                     flags.Add($" -o\"{ninjaObjPath}\""); // obj output path
                     if (context.Configuration.NinjaGenerateCodeCoverage)
