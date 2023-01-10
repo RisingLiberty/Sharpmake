@@ -805,6 +805,12 @@ namespace Sharpmake.Generators.Generic
                     {
                         flags.Add("-fsanitize=address");
                         context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
+
+                        // disable lto to avoid asan odr issues.
+                        // can't disable them with ASAN_OPTIONS=detect_odr_violation=0 due to unknown bug
+                        // https://github.com/google/sanitizers/issues/647
+                        context.CommandLineOptions["CompilerWholeProgramOptimization"] = FileGeneratorUtilities.RemoveLineTag;
+                        context.LinkerCommandLineOptions["LinkTimeCodeGeneration"] = FileGeneratorUtilities.RemoveLineTag;
                     }
                     if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
                     {
