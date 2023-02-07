@@ -21,6 +21,10 @@
                 return System.IO.Path.Combine(context.Compiler.ToString(), context.Configuration.Name);
             }
 
+            public static string LaunchNinjaBuildStatement(GenerationContext context)
+            {
+                return $"launch_ninja_{PerConfigFormat(context)}";
+            }
             public static string CleanBuildStatement(GenerationContext context)
             {
                 return $"clean_{PerConfigFormat(context)}";
@@ -76,6 +80,10 @@
                 public static string CompilerDB(GenerationContext context)
                 {
                     return $"{RulePrefix}compdb_{PerConfigFormat(context)}";
+                }
+                public static string LaunchNinja(GenerationContext context)
+                {
+                    return $"{RulePrefix}launch_ninja_{PerConfigFormat(context)}";
                 }
             }
 

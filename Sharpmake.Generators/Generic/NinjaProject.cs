@@ -199,18 +199,29 @@ namespace Sharpmake.Generators.Generic
 
                 string objPaths = MergeMultipleFlagsToString(ObjFilePaths);
                 string implicitLinkerFlags = MergeMultipleFlagsToString(ImplicitLinkerFlags);
-                string implicitLinkerPaths = MergeMultipleFlagsToString(ImplicitLinkerPaths, true, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
-                string implicitLinkerLibs = MergeMultipleFlagsToString(ImplicitLinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
                 string linkerFlags = MergeMultipleFlagsToString(Flags);
-                string libraryPaths = MergeMultipleFlagsToString(LinkerPaths, true, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
-                string libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
+
+                string implicitLinkerPaths = "";
+                string implicitLinkerLibs = "";
+                string libraryPaths = "";
+                string libraryFiles = "";
+
+                // when using the regular linker, we can use additional linker libs, if we're creating a static lib that depends on another however, we can't do this
+                // and have to add the archive as an additional input file
+                if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    implicitLinkerPaths = MergeMultipleFlagsToString(ImplicitLinkerPaths, true, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
+                    implicitLinkerLibs = MergeMultipleFlagsToString(ImplicitLinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
+                    libraryPaths = MergeMultipleFlagsToString(LinkerPaths, true, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludePath));
+                    libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
+                }
 
                 // Make sure dependencies are build BEFORE we link our current project
                 string linkDependenciesCommand = "";
                 foreach (string ninjaDependencyFile in NinjaDependencyFiles)
                 {
-                    string ninjaFilePath = KitsRootPaths.GetNinjaPath();
-                    linkDependenciesCommand += $"{ninjaFilePath} -f {ninjaDependencyFile} && ";
+                    string ninjaPath = KitsRootPaths.GetNinjaPath();
+                    linkDependenciesCommand += $"{ninjaPath} -f {ninjaDependencyFile} && ";
                 }
                 if (linkDependenciesCommand.Length > 0)
                 {
@@ -449,7 +460,7 @@ namespace Sharpmake.Generators.Generic
 
             var fileGenerator = new FileGenerator();
 
-            GenerateHeader(fileGenerator, context.Project.Name);
+            GenerateHeader(fileGenerator, GeneratePhonyName(context));
 
             fileGenerator.WriteLine("");
 
@@ -633,14 +644,14 @@ namespace Sharpmake.Generators.Generic
                 : KitsRootPaths.GetCompilerSettings(context.Compiler).LinkerPath;
         }
 
-        private void GenerateHeader(FileGenerator fileGenerator, string projectName)
+        private void GenerateHeader(FileGenerator fileGenerator, string logFolder)
         {
             fileGenerator.WriteLine($"# !! Sharpmake generated file !!");
             fileGenerator.WriteLine($"# All edits will be overwritten on the next sharpmake run");
             fileGenerator.WriteLine($"#");
             fileGenerator.WriteLine($"# Make sure we have the right version of Ninja");
             fileGenerator.WriteLine($"ninja_required_version = 1.1");
-            fileGenerator.WriteLine($"builddir = .ninja/{projectName}");
+            fileGenerator.WriteLine($"builddir = .ninja/{logFolder}");
             fileGenerator.WriteLine($"");
         }
 
@@ -689,6 +700,16 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"# Rule to generate compiler db");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t compdb {Template.RuleStatement.CompileCppFile(context)}");
+            fileGenerator.WriteLine($"");
+
+            // Ninja Launcher
+
+            string filePath = GetPerConfigFilePath(context.Configuration, context.Compiler);
+
+            fileGenerator.WriteLine($"# Rule to launch ninja from python\n# This resolves our dependency issues");
+            fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LaunchNinja(context)}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C py {KitsRootPaths.GetNinjaLauncherPath()} -exe={KitsRootPaths.GetNinjaPath()} -file={filePath} -build={GeneratePhonyName(context)}");
+            fileGenerator.WriteLine($"{Template.DescriptionBegin}Launching ninja for {filePath}");
             fileGenerator.WriteLine($"");
         }
 
@@ -748,17 +769,24 @@ namespace Sharpmake.Generators.Generic
 
             return statements;
         }
+        private string GeneratePhonyName(GenerationContext context)
+        {
+            return $"{ context.Configuration.Name }_{ context.Compiler}_{ context.Configuration.TargetFileFullName}".ToLower();
+        }
 
         private void GenerateProjectBuilds(FileGenerator fileGenerator, GenerationContext context)
         {
             //build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
-            string phony_name = $"{ context.Configuration.Name }_{ context.Compiler}_{ context.Configuration.TargetFileFullName}".ToLower();
+            string phony_name = GeneratePhonyName(context);
+            string launch_phony_name = $"launch_{phony_name}";
             fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullOutputPath(context)}");
+            fileGenerator.WriteLine($"{Template.BuildBegin}{Template.LaunchNinjaBuildStatement(context)}: {Template.RuleStatement.LaunchNinja(context)}");
+            fileGenerator.WriteLine($"{Template.BuildBegin}{launch_phony_name}: phony {Template.LaunchNinjaBuildStatement(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CleanBuildStatement(context)}: {Template.RuleStatement.Clean(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CompDBBuildStatement(context)}: {Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"");
 
-            fileGenerator.WriteLine($"default {phony_name}");
+            fileGenerator.WriteLine($"default {launch_phony_name}");
         }
 
         private static string CreateNinjaFilePath(string path)
