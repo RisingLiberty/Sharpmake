@@ -755,11 +755,17 @@ namespace Sharpmake.Generators.Generic
             linkStatement.Flags = GetLinkerFlags(context);
             linkStatement.ImplicitLinkerPaths = GetImplicitLinkPaths(context);
             Strings linkerPaths = GetLinkerPaths(context);
-            linkerPaths.AddRange(context.Configuration.DependenciesLibraryPaths);
+            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+            {
+                linkerPaths.AddRange(context.Configuration.DependenciesLibraryPaths);
+            }
             linkStatement.LinkerPaths = linkerPaths;
             linkStatement.ImplicitLinkerLibs = GetImplicitLinkLibraries(context);
             Strings linkerLibs = GetLinkLibraries(context);
-            linkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
+            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+            {
+                linkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
+            }
             linkStatement.LinkerLibs = linkerLibs;
             linkStatement.PreBuild = GetPreBuildCommands(context);
             linkStatement.PostBuild = GetPostBuildCommands(context);
