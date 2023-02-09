@@ -67,6 +67,11 @@ namespace Sharpmake
         ForceUsingAssembly = 1 << 6,
 
         /// <summary>
+        /// Add the foldername of the source directory to the list of headers to include when processing with clang_tools
+        /// </summary>
+        IncludeHeadersForClangtools = 1 << 7,
+
+        /// <summary>
         /// Specifies that the dependent project inherits the dependency's library files, library
         /// paths, include paths and defined symbols.
         /// </summary>
@@ -1010,6 +1015,25 @@ namespace Sharpmake
             /// Enables (true) or disables (false) a dump of the dependency graph for this configuration.
             /// </summary>
             public bool DumpDependencyGraph = false;
+
+            /// <summary>
+            /// The header regex values to be used for clang tools
+            /// </summary>
+            public Strings ClangToolHeaderFilterList = new Strings();
+
+            public string ClangToolHeaderFilterRegex()
+            {
+                string res = "";
+                foreach (string folderName in ClangToolHeaderFilterList)
+                {
+                    res += "(";
+                    res += folderName;
+                    res += ")|";
+                }
+                res.Remove(res.Length - 1); // remove the last '|'
+
+                return res;
+            }
 
             /// <summary>
             /// Adds a C or C++ source file with a specific exception setting.
@@ -3028,6 +3052,17 @@ namespace Sharpmake
                 var visitingNodes = new Stack<Tuple<DependencyNode, PropagationSettings>>();
                 visitingNodes.Push(Tuple.Create(rootNode, new PropagationSettings(DependencySetting.Default, true, true, true, false)));
 
+                // you care about your own includes
+                foreach (string includePath in IncludePaths)
+                {
+                    if (!Directory.Exists(includePath))
+                    {
+                        continue;
+                    }
+
+                    AddClangHeaderFilters(includePath);
+                }
+
                 while (visitingNodes.Count > 0)
                 {
                     var visitedTuple = visitingNodes.Pop();
@@ -3121,6 +3156,20 @@ namespace Sharpmake
                             // Is there a case where we want the defines but *not* the include paths?
                             if (dependencySetting.HasFlag(DependencySetting.Defines))
                                 Defines.AddRange(dependency.ExportDefines);
+                        }
+
+                        if (dependencySetting.HasFlag(DependencySetting.IncludeHeadersForClangtools))
+                        {
+                            // add the include directories and files of the dependency.
+                            foreach (string includePath in dependency.IncludePaths)
+                            {
+                                if (!Directory.Exists(includePath))
+                                {
+                                    continue;
+                                }
+
+                                AddClangHeaderFilters(includePath);
+                            }
                         }
                     }
 
@@ -3339,6 +3388,24 @@ namespace Sharpmake
                 _resolvedDependencies.AddRange(_resolvedPrivateDependencies);
 
                 _linkState = LinkState.Linked;
+            }
+
+            internal void AddClangHeaderFilters(string includePath)
+            {
+                var files = Directory.GetFiles(includePath);
+                var directories = Directory.GetDirectories(includePath);
+
+                foreach (string filePath in files)
+                {
+                    string fileName = Path.GetFileName(filePath);
+                    ClangToolHeaderFilterList.Add(fileName);
+                }
+
+                foreach (string directory in directories)
+                {
+                    string dirName = Path.GetFileName(directory);
+                    ClangToolHeaderFilterList.Add(dirName);
+                }
             }
 
             static private DependencyNode BuildDependencyNodeTree(Builder builder, Configuration conf)
