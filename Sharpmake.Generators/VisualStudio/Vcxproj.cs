@@ -1689,6 +1689,7 @@ namespace Sharpmake.Generators.VisualStudio
                             bool isCompileAsNonCLRFile = conf.ResolvedSourceFilesWithCompileAsNonCLROption.Contains(file.FileName);
                             bool objsInSubdirectories = conf.ObjectFileName != null && !isResource;
                             bool isExcludeFromGenerateXmlDocumentation = conf.ResolvedSourceFilesGenerateXmlDocumentationExclude.Contains(file.FileName);
+                            bool isExcludeFromJumboBuild = conf.ResolvedSourceFilesExcludeFromJumboBuild.Contains(file.FileName);
 
                             if (isPrecompSource && platformVcxproj.ExcludesPrecompiledHeadersFromBuild)
                                 isExcludeFromBuild = true;
@@ -1729,7 +1730,8 @@ namespace Sharpmake.Generators.VisualStudio
                                               hasExceptionSetting ||
                                               consumeWinRTExtensions ||
                                               excludeWinRTExtensions ||
-                                              objsInSubdirectories;
+                                              objsInSubdirectories ||
+                                              isExcludeFromJumboBuild;
 
                             if (haveFileOptions)
                             {
@@ -1859,6 +1861,11 @@ namespace Sharpmake.Generators.VisualStudio
                                         if (isExcludeFromGenerateXmlDocumentation)
                                         {
                                             fileGenerator.Write(Template.Project.ProjectFilesSourceExcludeGenerateXmlDocumentation);
+                                        }
+
+                                        if (isExcludeFromJumboBuild)
+                                        {
+                                            fileGenerator.Write(Template.Project.ProjectFilesSourceExcludeFromJumbo);
                                         }
                                     }
                                 }
