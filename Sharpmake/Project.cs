@@ -147,6 +147,8 @@ namespace Sharpmake
         public Strings SourceFilesCompileAsWinRTRegex = new Strings();                  // Sources file that match this regex will be compiled as WinRT Files
         public Strings SourceFilesExcludeAsWinRTRegex = new Strings();                  // Sources file that match this regex will be excluded from compilation as WinRT Files
 
+        public Strings SourceFilesExcludeFromJumboRegex = new Strings();                  // Sources file that match this regex will be excluded jumbo builds
+
         public Strings SourceFilesBlobExclude = new Strings();
         public Strings SourceFilesBlobExcludeRegex = new Strings();
         public Strings SourceFilesBlobExtensions = new Strings(".cpp");
@@ -575,6 +577,8 @@ namespace Sharpmake
         }
 
         public Strings ResolvedSourceFiles = new Strings();
+        public Strings ResolvedSourceFilesExcludeFromJumboBuild = new Strings();
+
         internal Strings ResolvedSourceFilesBuildExclude = new Strings();
 
 
@@ -850,6 +854,7 @@ namespace Sharpmake
             var sourceFilesCompileAsNonCLRRegex = RegexCache.GetCachedRegexes(SourceFilesCompileAsNonCLRRegex);
             var sourceFilesCompileAsWinRTRegex = RegexCache.GetCachedRegexes(SourceFilesCompileAsWinRTRegex);
             var sourceFilesExcludeAsWinRTRegex = RegexCache.GetCachedRegexes(SourceFilesExcludeAsWinRTRegex);
+            var sourceFilesExcludeFromJumboRegex = RegexCache.GetCachedRegexes(SourceFilesExcludeFromJumboRegex);
             var sourceFilesBlobExcludeRegex = RegexCache.GetCachedRegexes(SourceFilesBlobExcludeRegex);
 
             if (!Util.DirectoryExists(SourceRootPath))
@@ -1011,6 +1016,7 @@ namespace Sharpmake
             var resolvedSourceFilesWithCompileAsNonCLROption = new Strings();
             var resolvedSourceFilesWithCompileAsWinRTOption = new Strings();
             var resolvedSourceFilesWithExcludeAsWinRTOption = new Strings();
+            var resolvedSourceFilesWithExcludeExcludeFromJumboBuild = new Strings();
             using (builder.CreateProfilingScope("Project.ResolveSourceFiles:ApplyProjectRegexes"))
             {
                 // Do first part that is specific to project to not repeat for each config
@@ -1022,6 +1028,7 @@ namespace Sharpmake
                 AddMatchFiles(RootPath, resolvedSourceFilesRelative, ResolvedSourceFiles, ref resolvedSourceFilesWithCompileAsNonCLROption, sourceFilesCompileAsNonCLRRegex);
                 AddMatchFiles(RootPath, resolvedSourceFilesRelative, ResolvedSourceFiles, ref resolvedSourceFilesWithCompileAsWinRTOption, sourceFilesCompileAsWinRTRegex);
                 AddMatchFiles(RootPath, resolvedSourceFilesRelative, ResolvedSourceFiles, ref resolvedSourceFilesWithExcludeAsWinRTOption, sourceFilesExcludeAsWinRTRegex);
+                AddMatchFiles(RootPath, resolvedSourceFilesRelative, ResolvedSourceFiles, ref resolvedSourceFilesWithExcludeExcludeFromJumboBuild, sourceFilesExcludeFromJumboRegex);
             }
 
             // Optimization: with projects with huge number of configurations, regexes are the exact same in multiple confs.
@@ -1055,6 +1062,9 @@ namespace Sharpmake
                         writer.Write(val);
                     writer.Write(conf.SourceFilesCompileAsWinRTRegex.Count);
                     foreach (string val in conf.SourceFilesCompileAsWinRTRegex)
+                        writer.Write(val);
+                    writer.Write(conf.SourceFilesExcludeFromJumboRegex.Count);
+                    foreach (string val in conf.SourceFilesExcludeFromJumboRegex)
                         writer.Write(val);
                     writer.Write(conf.SourceFilesExcludeAsWinRTRegex.Count);
                     foreach (string val in conf.SourceFilesExcludeAsWinRTRegex)
@@ -1114,6 +1124,10 @@ namespace Sharpmake
                     conf.ResolvedSourceFilesWithExcludeAsWinRTOption.AddRange(resolvedSourceFilesWithExcludeAsWinRTOption);
                     var configSourceFilesExcludeAsWinRTRegex = RegexCache.GetCachedRegexes(conf.SourceFilesExcludeAsWinRTRegex);
                     AddMatchFiles(RootPath, resolvedSourceFilesRelative, ResolvedSourceFiles, ref conf.ResolvedSourceFilesWithExcludeAsWinRTOption, configSourceFilesExcludeAsWinRTRegex);
+
+                    conf.ResolvedSourceFilesExcludeFromJumboBuild.AddRange(resolvedSourceFilesWithExcludeExcludeFromJumboBuild);
+                    var configSourceFilesExcludeFromJumboBuildRegex = RegexCache.GetCachedRegexes(conf.SourceFilesExcludeFromJumboRegex);
+                    AddMatchFiles(RootPath, resolvedSourceFilesRelative, ResolvedSourceFilesExcludeFromJumboBuild, ref conf.ResolvedSourceFilesExcludeFromJumboBuild, configSourceFilesExcludeFromJumboBuildRegex);
 
                     conf.ResolvedSourceFilesBlobExclude.AddRange(conf.ResolvedSourceFilesWithCompileAsCOption);
                     conf.ResolvedSourceFilesBlobExclude.AddRange(conf.ResolvedSourceFilesWithCompileAsCPPOption);
@@ -1176,6 +1190,7 @@ namespace Sharpmake
                         conf.ResolvedSourceFilesWithCompileAsNonCLROption = doneConfWithSameRegexes.ResolvedSourceFilesWithCompileAsNonCLROption;
                         conf.ResolvedSourceFilesWithCompileAsWinRTOption = doneConfWithSameRegexes.ResolvedSourceFilesWithCompileAsWinRTOption;
                         conf.ResolvedSourceFilesWithExcludeAsWinRTOption = doneConfWithSameRegexes.ResolvedSourceFilesWithExcludeAsWinRTOption;
+                        conf.ResolvedSourceFilesExcludeFromJumboBuild = doneConfWithSameRegexes.ResolvedSourceFilesExcludeFromJumboBuild;
                     }
                 }
             }

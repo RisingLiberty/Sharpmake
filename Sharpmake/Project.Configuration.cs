@@ -66,6 +66,8 @@ namespace Sharpmake
         AdditionalUsingDirectories = 1 << 5,
         ForceUsingAssembly = 1 << 6,
 
+        IncludeHeadersForClangtools = 1 << 7,
+
         /// <summary>
         /// Specifies that the dependent project inherits the dependency's library files, library
         /// paths, include paths and defined symbols.
@@ -429,6 +431,7 @@ namespace Sharpmake
             }
 
             public Strings PathExcludeBuild = new Strings();
+            public Strings ClangToolHeaderFilterList = new Strings();
 
             private OutputType _output = OutputType.Exe; // None is default if Export
 
@@ -982,6 +985,11 @@ namespace Sharpmake
             /// Regex-based list of files that are excluded from being built to consume WinRT Extensions.
             /// </summary>
             public Strings SourceFilesExcludeAsWinRTRegex = new Strings();
+
+            /// <summary>
+            /// Regex-based list of files that are excluded from jumbo builds.
+            /// </summary>
+            public Strings SourceFilesExcludeFromJumboRegex = new Strings();
 
             /// <summary>
             /// Gets a list of files that must be compiled using the compiler's default exception settings
@@ -2330,6 +2338,8 @@ namespace Sharpmake
             public Strings ResolvedSourceFilesBlobExclude = new Strings();
 
             public Strings ResolvedSourceFilesGenerateXmlDocumentationExclude = new Strings();
+
+            public Strings ResolvedSourceFilesExcludeFromJumboBuild = new Strings();
 
             public Strings ResolvedSourceFilesWithCompileAsCOption = new Strings();
             public Strings ResolvedSourceFilesWithCompileAsCPPOption = new Strings();

@@ -398,8 +398,12 @@ namespace Sharpmake.Generators.VisualStudio
                 @"      <GenerateXMLDocumentationFiles Condition=""'$(Configuration)|$(Platform)'=='[conf.Name]|[platformName]'"">false</GenerateXMLDocumentationFiles>
 ";
 
+                public static string ProjectFilesSourceExcludeFromJumbo =
+                @"      <IncludeInUnityFile Condition=""'$(Configuration)|$(Platform)'=='[conf.Name]|[platformName]'"">false</IncludeInUnityFile>
+";
+
                 public static string SingleReferenceByName =
-                    @"    <Reference Include=""[include]"" />
+                    @" < Reference Include=""[include]"" />
 ";
 
                 public static string ReferenceByName =
