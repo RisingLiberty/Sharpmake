@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Text.Json;
+using System.Runtime.InteropServices;
 
 namespace Sharpmake.Generators.Generic
 {
@@ -181,13 +183,11 @@ namespace Sharpmake.Generators.Generic
 
             private GenerationContext Context;
             private string OutputPath;
-            private List<string> NinjaDependencyFiles;
 
-            public LinkStatement(GenerationContext context, string outputPath, List<string> ninjaDependencyFiles)
+            public LinkStatement(GenerationContext context, string outputPath)
             {
                 Context = context;
                 OutputPath = outputPath;
-                NinjaDependencyFiles = ninjaDependencyFiles;
 
                 PreBuild = "cd .";
                 PostBuild = "cd .";
@@ -216,25 +216,11 @@ namespace Sharpmake.Generators.Generic
                     libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
                 }
 
-                // Make sure dependencies are build BEFORE we link our current project
-                string linkDependenciesCommand = "";
-                foreach (string ninjaDependencyFile in NinjaDependencyFiles)
-                {
-                    string ninjaPath = KitsRootPaths.GetNinjaPath();
-                    linkDependenciesCommand += $"{ninjaPath} -f {ninjaDependencyFile} && ";
-                }
-                if (linkDependenciesCommand.Length > 0)
-                {
-                    linkDependenciesCommand = linkDependenciesCommand.Remove(linkDependenciesCommand.Length - " && ".Length, " && ".Length);
-                }
-                string newPreBuild = "";
-                if (string.IsNullOrEmpty(PreBuild) == false)
-                {
-                    newPreBuild += $"{PreBuild} && ";
-                }
-                newPreBuild += linkDependenciesCommand;
-
+                // generate the link command for this library
                 fileGenerator.WriteLine($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
+
+                // now add a dependency target for our dependencies
+                //fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerImplicitFlags(Context)}", implicitLinkerFlags);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerPaths(Context)}", implicitLinkerPaths);
@@ -244,7 +230,7 @@ namespace Sharpmake.Generators.Generic
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerLibraries(Context)}", libraryFiles);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.TargetFile(Context)}", OutputPath);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.TargetPdb(Context)}", TargetPdb);
-                WriteIfNotEmptyOr(fileGenerator, $"  {Template.BuildStatement.PreBuild(Context)}", newPreBuild, "cd .");
+                WriteIfNotEmptyOr(fileGenerator, $"  {Template.BuildStatement.PreBuild(Context)}", PreBuild, "cd .");
                 WriteIfNotEmptyOr(fileGenerator, $"  {Template.BuildStatement.PostBuild(Context)}", PostBuild, "cd .");
                 ;
 
@@ -252,7 +238,8 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private static readonly string ProjectExtension = ".ninja";
+        private static readonly string NinjaExtension = ".ninja";
+        private static readonly string ProjectExtension = ".nproj";
 
         private static string MergeMultipleFlagsToString(Strings options, bool addQuotes = false, string perOptionPrefix = "")
         {
@@ -330,7 +317,7 @@ namespace Sharpmake.Generators.Generic
                 }
             }
 
-            // the second pass uses these files to create a project file where the files can be build
+            // the second pass uses these files to create project file where the files can be build
             WriteProjectFile(builder, projectFilePath, project, configurations, generatedFiles, skipFiles);
         }
 
@@ -380,39 +367,85 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
+        private static string GetNinjaDependencyTargets(GenerationContext context)
+        {
+            string result = "";
+            string prefix = " | ";
+
+            if (context.Configuration.ResolvedDependencies.Count() > 0)
+            {
+                result += prefix;
+            }
+
+            foreach (var dependency in context.Configuration.ResolvedDependencies)
+            {
+                string phony_name = GeneratePhonyName(dependency, dependency.Target.GetFragment<Compiler>());
+                result += phony_name;
+                result += " ";
+            }
+
+            return result;
+        }
+
         private void WriteProjectFile(Builder builder, string projectFilePath, Project project, List<Project.Configuration> configurations, List<string> generatedFiles, List<string> skipFiles)
         {
-            List<string> filePaths = new List<string>();
-            List<string> dependencyFilePaths = new List<string>();
+            string projectName = project.Name;
+            Dictionary<Compiler, List<Project.Configuration>> configPerCompiler = new Dictionary<Compiler, List<Project.Configuration>>();
 
             foreach (var config in configurations)
             {
                 GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
-
-                foreach (var dependency in config.ResolvedDependencies)
+                if (configPerCompiler.ContainsKey(context.Compiler) == false)
                 {
-                    string dependencyFilePath = FullProjectPath(dependency.Project);
-
-                    if (!dependencyFilePaths.Contains(dependencyFilePath))
-                    {
-                        dependencyFilePaths.Add(dependencyFilePath);
-                    }
+                    configPerCompiler.Add(context.Compiler, new List<Project.Configuration>());
                 }
 
-                filePaths.Add(GetPerConfigFilePath(context.Configuration, context.Compiler));
+                configPerCompiler[context.Compiler].Add(context.Configuration);
             }
+
+            StringBuilder sb = new StringBuilder();
+            string quote = "\"";
+
+            string trailingCharacters = ",\n";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                trailingCharacters = ",\r\n";
+            }
+
+            sb.AppendLine($"{{");
+            sb.AppendLine($"\t{quote}{projectName.ToLower()}{quote}:");
+            sb.AppendLine($"\t{{");
+
+            foreach (var compiler in configPerCompiler)
+            {
+                sb.AppendLine($"\t\t{quote}{compiler.Key.ToString().ToLower()}{quote}:");
+                sb.AppendLine($"\t\t{{");
+                foreach (var config in compiler.Value)
+                {
+                    GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
+                    sb.AppendLine($"\t\t\t{quote}{config.Name.ToLower()}{quote}:");
+                    sb.AppendLine($"\t\t\t{{");
+                    string ninjaFilePath = GetPerConfigFilePath(context.Configuration, context.Compiler);
+                    sb.AppendLine($"\t\t\t\t{quote}ninja_file{quote} : {quote}{ninjaFilePath}{quote},");
+                    sb.AppendLine($"\t\t\t\t{quote}dependencies{quote} : [");
+                    string dependencies = GetDependencies(context, 4);
+                    sb.AppendLine($"{dependencies}");
+                    sb.AppendLine($"\t\t\t\t]");
+                    sb.AppendLine($"\t\t\t}},");
+                }
+                sb.Remove(sb.Length - trailingCharacters.Length, 1); // remove trailing comma
+                sb.AppendLine($"\t\t}},");
+            }
+            sb.Remove(sb.Length - trailingCharacters.Length, 1); // remove trailing comma
+
+            sb.AppendLine($"\t}}");
+            sb.AppendLine($"}}");
 
             var fileGenerator = new FileGenerator();
 
-            GenerateHeader(fileGenerator, project.Name);
-
-            fileGenerator.WriteLine($"");
-            fileGenerator.WriteLine($"# Ninja files");
-            foreach (var path in filePaths)
-            {
-                fileGenerator.WriteLine($"include {CreateNinjaFilePath(path)}");
-            }
-            fileGenerator.WriteLine($"");
+            string content = sb.ToString();
+            content = content.Replace("\\", "\\\\");
+            fileGenerator.WriteLine(content);
 
             string fullProjectPath = FullProjectPath(project);
 
@@ -424,6 +457,30 @@ namespace Sharpmake.Generators.Generic
             {
                 skipFiles.Add(fullProjectPath);
             }
+        }
+
+        private string GetDependencies(GenerationContext context, int indentLevel = 0)
+        {
+            string result = "";
+            string suffix = ",\n";
+            string indent = indentLevel > 0 ? Enumerable.Repeat("\t", (int)indentLevel).Aggregate((sum, next) => sum + next) : "";
+
+
+            foreach (var config in context.Configuration.ResolvedDependencies)
+            {
+                string projectPath = FullProjectPath(config.Project);
+
+                result += indent;
+                result += $"\"{projectPath}\"";
+                result += suffix;
+            }
+
+            if (result.EndsWith(suffix))
+            {
+                result = result.Substring(0, result.Length - suffix.Length);
+            }
+
+            return result;
         }
 
         private string FullProjectPath(Project project)
@@ -440,6 +497,16 @@ namespace Sharpmake.Generators.Generic
             throw new Error("Failed to find project path");
         }
 
+        private void GenerateIncludes(FileGenerator fileGenerator, GenerationContext context)
+        { 
+            foreach (var dependency in context.Configuration.ResolvedDependencies)
+            {
+                var compiler = dependency.Target.GetFragment<Compiler>();
+                var path = GetPerConfigFilePath(dependency, compiler);
+                fileGenerator.WriteLine($"include {CreateNinjaFilePath(path)}");
+            }
+        }
+
         private void WritePerConfigFile(GenerationContext context, Strings filesToCompile, List<string> generatedFiles, List<string> skipFiles)
         {
             Strings objFilePaths = GetObjPaths(context);
@@ -447,22 +514,16 @@ namespace Sharpmake.Generators.Generic
             ResolvePdbPaths(context);
             GenerateConfOptions(context);
 
-            List<string> ninjaDependencyFiles = new List<string>();
-            foreach (var dependency in context.Configuration.ResolvedDependencies)
-            {
-                var compiler = dependency.Target.GetFragment<Compiler>();
-                var path = GetPerConfigFilePath(dependency, compiler);
-                ninjaDependencyFiles.Add(path);
-            }
-
             List<CompileStatement> compileStatements = GenerateCompileStatements(context, filesToCompile, objFilePaths);
-            List<LinkStatement> linkStatements = GenerateLinking(context, objFilePaths, ninjaDependencyFiles);
+            List<LinkStatement> linkStatements = GenerateLinking(context, objFilePaths);
 
             var fileGenerator = new FileGenerator();
 
-            GenerateHeader(fileGenerator, GeneratePhonyName(context));
+            GenerateHeader(fileGenerator, GeneratePhonyName(context.Configuration, context.Compiler));
 
             fileGenerator.WriteLine("");
+
+            GenerateIncludes(fileGenerator, context);
 
             GenerateRules(fileGenerator, context);
 
@@ -519,7 +580,7 @@ namespace Sharpmake.Generators.Generic
 
         private string GetPerConfigFileName(Project.Configuration config, Compiler compiler)
         {
-            return $"{config.Project.Name}.{config.Name}.{compiler}{ProjectExtension}";
+            return $"{config.Project.Name}.{config.Name}.{compiler}{NinjaExtension}";
         }
 
         private string GetCompilerDBPath(GenerationContext context)
@@ -701,16 +762,6 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t compdb {Template.RuleStatement.CompileCppFile(context)}");
             fileGenerator.WriteLine($"");
-
-            // Ninja Launcher
-
-            string filePath = GetPerConfigFilePath(context.Configuration, context.Compiler);
-
-            fileGenerator.WriteLine($"# Rule to launch ninja from python\n# This resolves our dependency issues");
-            fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LaunchNinja(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C py {KitsRootPaths.GetNinjaLauncherPath()} -exe={KitsRootPaths.GetNinjaPath()} -file={filePath} -build={GeneratePhonyName(context)}");
-            fileGenerator.WriteLine($"{Template.DescriptionBegin}Launching ninja for {filePath}");
-            fileGenerator.WriteLine($"");
         }
 
         private List<CompileStatement> GenerateCompileStatements(GenerationContext context, Strings filesToCompile, Strings objPaths)
@@ -742,13 +793,13 @@ namespace Sharpmake.Generators.Generic
             return statements;
         }
 
-        private List<LinkStatement> GenerateLinking(GenerationContext context, Strings objFilePaths, List<string> ninjaDependencyFiles)
+        private List<LinkStatement> GenerateLinking(GenerationContext context, Strings objFilePaths)
         {
             List<LinkStatement> statements = new List<LinkStatement>();
 
             string outputPath = FullOutputPath(context);
 
-            var linkStatement = new LinkStatement(context, outputPath, ninjaDependencyFiles);
+            var linkStatement = new LinkStatement(context, outputPath);
 
             linkStatement.ObjFilePaths = objFilePaths;
             linkStatement.ImplicitLinkerFlags = GetImplicitLinkerFlags(context, outputPath);
@@ -775,24 +826,21 @@ namespace Sharpmake.Generators.Generic
 
             return statements;
         }
-        private string GeneratePhonyName(GenerationContext context)
+        private static string GeneratePhonyName(Project.Configuration config, Compiler compiler)
         {
-            return $"{ context.Configuration.Name }_{ context.Compiler}_{ context.Configuration.TargetFileFullName}".ToLower();
+            return $"{ config.Name }_{ compiler}_{ config.TargetFileFullName}".ToLower();
         }
 
         private void GenerateProjectBuilds(FileGenerator fileGenerator, GenerationContext context)
         {
             //build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
-            string phony_name = GeneratePhonyName(context);
-            string launch_phony_name = $"launch_{phony_name}";
+            string phony_name = GeneratePhonyName(context.Configuration, context.Compiler);
             fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullOutputPath(context)}");
-            fileGenerator.WriteLine($"{Template.BuildBegin}{Template.LaunchNinjaBuildStatement(context)}: {Template.RuleStatement.LaunchNinja(context)}");
-            fileGenerator.WriteLine($"{Template.BuildBegin}{launch_phony_name}: phony {Template.LaunchNinjaBuildStatement(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CleanBuildStatement(context)}: {Template.RuleStatement.Clean(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CompDBBuildStatement(context)}: {Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"");
 
-            fileGenerator.WriteLine($"default {launch_phony_name}");
+            fileGenerator.WriteLine($"default {phony_name}");
         }
 
         private static string CreateNinjaFilePath(string path)
@@ -1069,6 +1117,12 @@ namespace Sharpmake.Generators.Generic
             Strings result = new Strings();
             foreach (var libFile in context.Configuration.DependenciesLibraryFiles)
             {
+                if (context.Configuration.DependenciesOtherLibraryFiles.Contains(libFile))
+                {
+                    result.Add(libFile);
+                    continue;
+                }
+
                 string stem = Path.GetFileNameWithoutExtension(libFile);
                 string extension = Path.GetExtension(libFile);
 
