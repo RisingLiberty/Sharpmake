@@ -1800,7 +1800,7 @@ namespace Sharpmake
                 case DevEnv.make:
                     return "";
                 case DevEnv.ninja:
-                    return ".ninja";
+                    return ".nsln";
                 default:
                     throw new Error("Unknown DevEnv for solution extension");
             }
