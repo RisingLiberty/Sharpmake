@@ -336,31 +336,42 @@ namespace Sharpmake.Generators.Generic
             List<string> generatedFiles,
             List<string> skipFiles)
         {
-            FileGenerator fileGenerator = new FileGenerator();
-
-            GenerateHeader(fileGenerator);
-
-            fileGenerator.WriteLine($"# Solution for {solution.Name}");
-
-            List<Project> projectsToInclude = new List<Project>();
+            List<Project> projects = new List<Project>();
             foreach (var config in configurations)
             {
                 foreach (var projectInfo in config.IncludedProjectInfos)
                 {
-                    if (projectsToInclude.FindIndex(x => x == projectInfo.Project) == -1)
+                    if (projects.Contains(projectInfo.Project) == false)
                     {
-                        projectsToInclude.Add(projectInfo.Project);
+                        projects.Add(projectInfo.Project);
                     }
                 }
             }
 
-            foreach (var project in projectsToInclude)
+            StringBuilder sb = new StringBuilder();
+            string quote = "\"";
+
+            string trailingCharacters = ",\n";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                string fullProjectPath = FullProjectPath(project);
-                fileGenerator.WriteLine($"include {CreateNinjaFilePath(fullProjectPath)}");
+                trailingCharacters = ",\r\n";
             }
 
-            fileGenerator.RemoveTaggedLines();
+            sb.AppendLine($"{{");
+
+            foreach (Project project in projects)
+            {
+                sb.AppendLine($"\t{quote}{project.Name}{quote} : {quote}{FullProjectPath(project)}{quote},");
+            }
+            sb.Remove(sb.Length - trailingCharacters.Length, 1); // remove trailing comma
+
+            sb.AppendLine($"}}");
+
+            string content = sb.ToString();
+            content = content.Replace("\\", "\\\\");
+
+            FileGenerator fileGenerator = new FileGenerator();
+            fileGenerator.WriteLine(content);
             MemoryStream memoryStream = fileGenerator.ToMemoryStream();
             FileInfo solutionFileInfo = new FileInfo($"{solutionFile}{Util.GetSolutionExtension(DevEnv.ninja)}");
 
@@ -471,7 +482,6 @@ namespace Sharpmake.Generators.Generic
             string result = "";
             string suffix = ",\n";
             string indent = indentLevel > 0 ? Enumerable.Repeat("\t", (int)indentLevel).Aggregate((sum, next) => sum + next) : "";
-
 
             foreach (var config in context.Configuration.ResolvedDependencies)
             {
