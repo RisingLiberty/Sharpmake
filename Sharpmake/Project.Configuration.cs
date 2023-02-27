@@ -66,8 +66,6 @@ namespace Sharpmake
         AdditionalUsingDirectories = 1 << 5,
         ForceUsingAssembly = 1 << 6,
 
-        IncludeHeadersForClangtools = 1 << 7,
-
         /// <summary>
         /// Add the foldername of the source directory to the list of headers to include when processing with clang_tools
         /// </summary>
@@ -436,7 +434,6 @@ namespace Sharpmake
             }
 
             public Strings PathExcludeBuild = new Strings();
-            public Strings ClangToolHeaderFilterList = new Strings();
 
             private OutputType _output = OutputType.Exe; // None is default if Export
 
