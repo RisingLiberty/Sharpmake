@@ -217,10 +217,17 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 // generate the link command for this library
-                fileGenerator.WriteLine($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
 
                 // now add a dependency target for our dependencies
-                //fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
+                if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
+                    fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
+                }
+                else
+                {
+                    fileGenerator.WriteLine($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
+                }
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerImplicitFlags(Context)}", implicitLinkerFlags);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerPaths(Context)}", implicitLinkerPaths);
@@ -331,7 +338,7 @@ namespace Sharpmake.Generators.Generic
         {
             FileGenerator fileGenerator = new FileGenerator();
 
-            GenerateHeader(fileGenerator, solution.Name);
+            GenerateHeader(fileGenerator);
 
             fileGenerator.WriteLine($"# Solution for {solution.Name}");
 
@@ -519,11 +526,14 @@ namespace Sharpmake.Generators.Generic
 
             var fileGenerator = new FileGenerator();
 
-            GenerateHeader(fileGenerator, GeneratePhonyName(context.Configuration, context.Compiler));
+            GenerateHeader(fileGenerator);
 
             fileGenerator.WriteLine("");
 
-            GenerateIncludes(fileGenerator, context);
+            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+            {
+                GenerateIncludes(fileGenerator, context);
+            }
 
             GenerateRules(fileGenerator, context);
 
@@ -705,14 +715,14 @@ namespace Sharpmake.Generators.Generic
                 : KitsRootPaths.GetCompilerSettings(context.Compiler).LinkerPath;
         }
 
-        private void GenerateHeader(FileGenerator fileGenerator, string logFolder)
+        private void GenerateHeader(FileGenerator fileGenerator)
         {
             fileGenerator.WriteLine($"# !! Sharpmake generated file !!");
             fileGenerator.WriteLine($"# All edits will be overwritten on the next sharpmake run");
             fileGenerator.WriteLine($"#");
             fileGenerator.WriteLine($"# Make sure we have the right version of Ninja");
             fileGenerator.WriteLine($"ninja_required_version = 1.1");
-            fileGenerator.WriteLine($"builddir = .ninja/{logFolder}");
+            fileGenerator.WriteLine($"builddir = .ninja");
             fileGenerator.WriteLine($"");
         }
 
