@@ -30,7 +30,6 @@ namespace Sharpmake
         private static Dictionary<Compiler, CompilerInfo> s_compilerInfo = new Dictionary<Compiler, CompilerInfo>();
 
         private static string s_ninjaPath = "";
-        private static string s_ninjaLauncherPath = "";
 
         private static readonly ConcurrentDictionary<DotNetFramework, string> s_netFxKitsDir = new ConcurrentDictionary<DotNetFramework, string>();
 
@@ -160,20 +159,14 @@ namespace Sharpmake
             return s_compilerInfo[compiler];
         }
 
-        public static void SetNinjaPath(string exePath, string ninjaLauncherPath)
+        public static void SetNinjaPath(string exePath)
         {
             s_ninjaPath = exePath;
-            s_ninjaLauncherPath = ninjaLauncherPath;
         }
 
         public static string GetNinjaPath()
         {
             return s_ninjaPath;
-        }
-
-        public static string GetNinjaLauncherPath()
-        {
-            return s_ninjaLauncherPath;
         }
 
         public static string GetNETFXKitsDir(DotNetFramework dotNetFramework)
