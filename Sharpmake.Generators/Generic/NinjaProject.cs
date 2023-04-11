@@ -318,10 +318,6 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 WritePerConfigFile(context, filesToCompile, generatedFiles, skipFiles);
-                if (config.NinjaGenerateCompilerDB)
-                {
-                    WriteCompilerDatabaseFile(context);
-                }
             }
 
             // the second pass uses these files to create project file where the files can be build
@@ -800,6 +796,7 @@ namespace Sharpmake.Generators.Generic
                 compileStatement.ImplicitCompilerFlags = GetImplicitCompilerFlags(context, objPath);
                 compileStatement.CompilerFlags = GetCompilerFlags(context);
                 OrderableStrings includePaths = context.Configuration.IncludePaths;
+                includePaths.AddRange(context.Configuration.IncludePrivatePaths);
                 includePaths.AddRange(context.Configuration.DependenciesIncludePaths);
                 compileStatement.Includes = includePaths;
                 OrderableStrings systemIncludePaths = context.Configuration.IncludeSystemPaths;
