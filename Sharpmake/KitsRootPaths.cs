@@ -132,6 +132,16 @@ namespace Sharpmake
 
                     break;
             }
+
+            string kitRoot = GetRoot(kitsRoot);
+            string libPath = Path.Combine(kitRoot, "lib", windowsTargetPlatformVersion.Value.ToVersionString());
+            string includePath = Path.Combine(kitRoot, "include", windowsTargetPlatformVersion.Value.ToVersionString());
+
+            if (!Directory.Exists(libPath) || !Directory.Exists(includePath))
+            {
+                throw new Error($"Unsupported KitsRootPath: '{libPath}' or '{includePath}' does not exist");
+            }
+
             s_useKitsRootForDevEnv[devEnv] = Tuple.Create(kitsRoot, windowsTargetPlatformVersion);
         }
 
