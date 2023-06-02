@@ -217,17 +217,8 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 // generate the link command for this library
-
-                // now add a dependency target for our dependencies
-                if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
-                {
-                    fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
-                    fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
-                }
-                else
-                {
-                    fileGenerator.WriteLine($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
-                }
+                fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
+                fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerImplicitFlags(Context)}", implicitLinkerFlags);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerPaths(Context)}", implicitLinkerPaths);
@@ -306,8 +297,6 @@ namespace Sharpmake.Generators.Generic
         List<string> skipFiles)
         {
             // The first pass writes ninja files per configuration
-            Strings filesToCompile = GetFilesToCompile(project);
-
             foreach (var config in configurations)
             {
                 GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
@@ -317,6 +306,7 @@ namespace Sharpmake.Generators.Generic
                     throw new Error("Shared library for GCC is currently not supported");
                 }
 
+                Strings filesToCompile = GetFilesToCompile(project, config);
                 WritePerConfigFile(context, filesToCompile, generatedFiles, skipFiles);
             }
 
@@ -663,14 +653,14 @@ namespace Sharpmake.Generators.Generic
             return builder.Context.WriteGeneratedFile(project.GetType(), projectFileInfo, memoryStream);
         }
 
-        private Strings GetFilesToCompile(Project project)
+        private Strings GetFilesToCompile(Project project, Project.Configuration configuration)
         {
             Strings filesToCompile = new Strings();
 
-            foreach (var sourceFile in project.SourceFiles)
+            foreach (var sourceFile in project.ResolvedSourceFiles)
             {
                 string extension = Path.GetExtension(sourceFile);
-                if (project.SourceFilesCompileExtensions.Contains(extension))
+                if (project.SourceFilesCompileExtensions.Contains(extension) && !configuration.ResolvedSourceFilesBuildExclude.Contains(sourceFile))
                 {
                     filesToCompile.Add(sourceFile);
                 }
@@ -682,10 +672,10 @@ namespace Sharpmake.Generators.Generic
         {
             Strings objFilePaths = new Strings();
 
-            foreach (var sourceFile in context.Project.SourceFiles)
+            foreach (var sourceFile in context.Project.ResolvedSourceFiles)
             {
                 string extension = Path.GetExtension(sourceFile);
-                if (context.Project.SourceFilesCompileExtensions.Contains(extension))
+                if (context.Project.SourceFilesCompileExtensions.Contains(extension) && !context.Configuration.ResolvedSourceFilesBuildExclude.Contains(sourceFile))
                 {
                     string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
                     string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
