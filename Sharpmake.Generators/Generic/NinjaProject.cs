@@ -10,6 +10,16 @@ using System.Runtime.InteropServices;
 
 namespace Sharpmake.Generators.Generic
 {
+    public class YesNoEnum
+    {
+        public enum Value
+        {
+            No,
+            Yes
+        }
+    }
+    public class IsLinkerResponse : YesNoEnum { }
+
     public partial class NinjaProject : IProjectGenerator
     {
         private class GenerationContext : IGenerationContext
@@ -170,6 +180,7 @@ namespace Sharpmake.Generators.Generic
 
         private class LinkStatement
         {
+            public string ResponseFilePath { get; set; }
             public Strings ObjFilePaths { get; set; }
             public Strings ImplicitLinkerFlags { get; set; }
             public Strings Flags { get; set; }
@@ -197,7 +208,6 @@ namespace Sharpmake.Generators.Generic
             {
                 var fileGenerator = new FileGenerator();
 
-                string objPaths = MergeMultipleFlagsToString(ObjFilePaths);
                 string implicitLinkerFlags = MergeMultipleFlagsToString(ImplicitLinkerFlags);
                 string linkerFlags = MergeMultipleFlagsToString(Flags);
 
@@ -217,10 +227,18 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 // generate the link command for this library
-                fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)} {objPaths}");
+                fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)}");
+                fileGenerator.Write(" | ");
+                
+                foreach (string path in ObjFilePaths)
+                {
+                    fileGenerator.Write($" {path}");
+                }
+
                 fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
 
-                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerImplicitFlags(Context)}", implicitLinkerFlags);
+                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{CreateNinjaFilePath(ResponseFilePath)}");
+                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerFlags(Context)}", implicitLinkerFlags);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerPaths(Context)}", implicitLinkerPaths);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerLibraries(Context)}", implicitLinkerLibs);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerFlags(Context)}", linkerFlags);
@@ -374,7 +392,7 @@ namespace Sharpmake.Generators.Generic
         private static string GetNinjaDependencyTargets(GenerationContext context)
         {
             string result = "";
-            string prefix = " | ";
+            string prefix = " ";
 
             if (context.Configuration.ResolvedDependencies.Count() > 0)
             {
@@ -518,7 +536,7 @@ namespace Sharpmake.Generators.Generic
             GenerateConfOptions(context);
 
             List<CompileStatement> compileStatements = GenerateCompileStatements(context, filesToCompile, objFilePaths);
-            List<LinkStatement> linkStatements = GenerateLinking(context, objFilePaths);
+            List<LinkStatement> linkStatements = GenerateLinking(context, GetNonNinjaObjPaths(context), objFilePaths);
 
             var fileGenerator = new FileGenerator();
 
@@ -624,6 +642,23 @@ namespace Sharpmake.Generators.Generic
             return CreateNinjaFilePath($"{Path.Combine(context.Configuration.TargetPath, fullFileName)}");
         }
 
+        private static string CreateResponseFile(GenerationContext context, IsLinkerResponse.Value isLinkerRespponse, Strings files)
+        {
+            string fullFileName = isLinkerRespponse == IsLinkerResponse.Value.Yes
+                ? $"{context.Configuration.TargetFileFullName}_{context.Configuration.Name}_{context.Compiler}_linker_response.txt"
+                : $"{context.Configuration.TargetFileFullName}_{context.Configuration.Name}_{context.Compiler}_compiler_response.txt";
+            string responseFilePath = Path.Combine(context.Configuration.TargetPath, fullFileName);
+
+            StringBuilder sb = new StringBuilder();
+            foreach (string file in files)
+            {
+                sb.Append($"{file.Replace('\\', '/')} ");
+            }
+
+            File.WriteAllText(responseFilePath, sb.ToString());
+            return responseFilePath;
+        }
+
         private void ResolvePdbPaths(GenerationContext context)
         {
             // Relative pdb filepaths is not supported for ninja generation
@@ -691,6 +726,29 @@ namespace Sharpmake.Generators.Generic
             return objFilePaths;
         }
 
+        Strings GetNonNinjaObjPaths(GenerationContext context)
+        {
+            Strings objFilePaths = new Strings();
+
+            foreach (var sourceFile in context.Project.ResolvedSourceFiles)
+            {
+                string extension = Path.GetExtension(sourceFile);
+                if (context.Project.SourceFilesCompileExtensions.Contains(extension) && !context.Configuration.ResolvedSourceFilesBuildExclude.Contains(sourceFile))
+                {
+                    string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
+                    string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
+                    string fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
+
+                    string outputExtension = context.Configuration.Target.GetFragment<Compiler>() == Compiler.MSVC ? ".obj" : ".o";
+
+                    string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileDir, fileStem)}{outputExtension}";
+                    objFilePaths.Add(objPath);
+                }
+            }
+
+            return objFilePaths;
+        }
+
         private void CreatePdbPath(GenerationContext context)
         {
             if (!Directory.Exists(Path.GetDirectoryName(context.Configuration.LinkerPdbFilePath)))
@@ -751,7 +809,7 @@ namespace Sharpmake.Generators.Generic
 
             fileGenerator.WriteLine($"# Rule for linking C++ objects");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C \"${Template.BuildStatement.PreBuild(context)} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.LinkerImplicitFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} $in && ${Template.BuildStatement.PostBuild(context)}\"");
+            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C \"${Template.BuildStatement.PreBuild(context)} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)}\"");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}Linking C++ {outputType} ${Template.BuildStatement.TargetFile(context)}");
             fileGenerator.WriteLine($"  restat = $RESTAT");
             fileGenerator.WriteLine($"");
@@ -800,14 +858,16 @@ namespace Sharpmake.Generators.Generic
             return statements;
         }
 
-        private List<LinkStatement> GenerateLinking(GenerationContext context, Strings objFilePaths)
+        private List<LinkStatement> GenerateLinking(GenerationContext context, Strings nonNinjaobjFilePaths, Strings objFilePaths)
         {
             List<LinkStatement> statements = new List<LinkStatement>();
 
             string outputPath = FullOutputPath(context);
+            string responseFilePath = CreateResponseFile(context, IsLinkerResponse.Value.Yes, nonNinjaobjFilePaths);
 
             var linkStatement = new LinkStatement(context, outputPath);
 
+            linkStatement.ResponseFilePath = responseFilePath;
             linkStatement.ObjFilePaths = objFilePaths;
             linkStatement.ImplicitLinkerFlags = GetImplicitLinkerFlags(context, outputPath);
             linkStatement.Flags = GetLinkerFlags(context);
@@ -963,7 +1023,6 @@ namespace Sharpmake.Generators.Generic
             switch (context.Configuration.Target.GetFragment<Compiler>())
             {
                 case Compiler.MSVC:
-                    flags.Add("/nologo"); // supress copyright banner in compiler
                     flags.Add($" /OUT:{outputPath}"); // Output file
                     if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
                     {

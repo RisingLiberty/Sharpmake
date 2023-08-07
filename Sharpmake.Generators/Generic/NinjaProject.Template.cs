@@ -109,9 +109,13 @@
                 {
                     return $"{PerConfigFormat(context)}_COMPILER_FLAGS";
                 }
-                public static string LinkerImplicitFlags(GenerationContext context)
+                public static string ImplicitLinkerFlags(GenerationContext context)
                 {
                     return $"{PerConfigFormat(context)}_LINKER_IMPLICIT_FLAGS";
+                }
+                public static string LinkerResponseFile(GenerationContext context)
+                {
+                    return $"{PerConfigFormat(context)}_LINKER_RESPONSE_FILE";
                 }
                 public static string LinkerFlags(GenerationContext context)
                 {
