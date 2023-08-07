@@ -530,13 +530,13 @@ namespace Sharpmake.Generators.Generic
 
         private void WritePerConfigFile(GenerationContext context, Strings filesToCompile, List<string> generatedFiles, List<string> skipFiles)
         {
-            Strings objFilePaths = GetObjPaths(context);
+            Strings ninjaObjFilePaths = GetNinjaObjPaths(context);
 
             ResolvePdbPaths(context);
             GenerateConfOptions(context);
 
-            List<CompileStatement> compileStatements = GenerateCompileStatements(context, filesToCompile, objFilePaths);
-            List<LinkStatement> linkStatements = GenerateLinking(context, GetNonNinjaObjPaths(context), objFilePaths);
+            List<CompileStatement> compileStatements = GenerateCompileStatements(context, filesToCompile, ninjaObjFilePaths);
+            List<LinkStatement> linkStatements = GenerateLinking(context, GetObjPaths(context), ninjaObjFilePaths);
 
             var fileGenerator = new FileGenerator();
 
@@ -703,30 +703,8 @@ namespace Sharpmake.Generators.Generic
 
             return filesToCompile;
         }
+
         Strings GetObjPaths(GenerationContext context)
-        {
-            Strings objFilePaths = new Strings();
-
-            foreach (var sourceFile in context.Project.ResolvedSourceFiles)
-            {
-                string extension = Path.GetExtension(sourceFile);
-                if (context.Project.SourceFilesCompileExtensions.Contains(extension) && !context.Configuration.ResolvedSourceFilesBuildExclude.Contains(sourceFile))
-                {
-                    string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
-                    string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
-                    string fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
-
-                    string outputExtension = context.Configuration.Target.GetFragment<Compiler>() == Compiler.MSVC ? ".obj" : ".o";
-
-                    string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileDir, fileStem)}{outputExtension}";
-                    objFilePaths.Add(CreateNinjaFilePath(objPath));
-                }
-            }
-
-            return objFilePaths;
-        }
-
-        Strings GetNonNinjaObjPaths(GenerationContext context)
         {
             Strings objFilePaths = new Strings();
 
@@ -747,6 +725,19 @@ namespace Sharpmake.Generators.Generic
             }
 
             return objFilePaths;
+        }
+
+        Strings GetNinjaObjPaths(GenerationContext context)
+        {
+            Strings objFilePaths = GetObjPaths(context);
+
+            Strings res = new Strings();
+            foreach (string file in objFilePaths)
+            {
+                res.Append(CreateNinjaFilePath(file));
+            }
+
+            return res;
         }
 
         private void CreatePdbPath(GenerationContext context)
