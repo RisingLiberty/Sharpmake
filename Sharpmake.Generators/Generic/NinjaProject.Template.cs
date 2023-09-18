@@ -39,6 +39,11 @@
                     return $"{RulePrefix}compile_cpp_file_{PerConfigFormat(context)}";
                 }
 
+                public static string CompileCFile(GenerationContext context)
+                {
+                    return $"{RulePrefix}compile_c_file_{PerConfigFormat(context)}";
+                }
+
                 public static string LinkExe(GenerationContext context)
                 {
                     return $"{RulePrefix}link_exe_{PerConfigFormat(context)}";

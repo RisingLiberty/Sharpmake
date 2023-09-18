@@ -136,6 +136,7 @@ namespace Sharpmake.Generators.Generic
         private class CompileStatement
         {
             private string Name;
+            private string OriginalFilename;
             private string Input;
             private GenerationContext Context;
 
@@ -147,9 +148,10 @@ namespace Sharpmake.Generators.Generic
             public OrderableStrings SystemIncludes { get; set; }
             public string TargetFilePath { get; set; }
 
-            public CompileStatement(string name, string input, GenerationContext context)
+            public CompileStatement(string name, string originalFilename, string input, GenerationContext context)
             {
                 Name = name;
+                OriginalFilename = originalFilename;
                 Input = input;
                 Context = context;
             }
@@ -164,7 +166,35 @@ namespace Sharpmake.Generators.Generic
                 string includes = MergeMultipleFlagsToString(Includes, true, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.Include));
                 string systemIncludes = MergeMultipleFlagsToString(SystemIncludes, true, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.SystemInclude));
 
-                fileGenerator.WriteLine($"{Template.BuildBegin}{Name}: {Template.RuleStatement.CompileCppFile(Context)} {Input}");
+                bool isCompileAsCFile = Context.Configuration.ResolvedSourceFilesWithCompileAsCOption.Contains(OriginalFilename);
+                string compilerStatement = isCompileAsCFile ? Template.RuleStatement.CompileCFile(Context) : Template.RuleStatement.CompileCppFile(Context);
+
+                // Replace C++ standard with C standard
+                if (isCompileAsCFile)
+                {
+                    string languageStandard = "";
+                    string ClanguageStandard = "";
+
+                    if (Context.Compiler == Compiler.MSVC)
+                    {
+                        Context.CommandLineOptions.TryGetValue("LanguageStandard", out languageStandard);
+                        Context.CommandLineOptions.TryGetValue("LanguageStandard_C", out ClanguageStandard);
+                    }
+                    else // For clang
+                    {
+                        Context.CommandLineOptions.TryGetValue("CppLanguageStd", out languageStandard);
+                        Context.CommandLineOptions.TryGetValue("CLanguageStd", out ClanguageStandard);
+                    }
+
+                    if (ClanguageStandard == FileGeneratorUtilities.RemoveLineTag)
+                    {
+                        ClanguageStandard = "";
+                    }
+
+                    compilerFlags = compilerFlags.Replace(languageStandard, ClanguageStandard);
+                }
+
+                fileGenerator.WriteLine($"{Template.BuildBegin}{Name}: {compilerStatement} {Input}");
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.Defines(Context)}", defines);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.DepFile(Context)}", $"{DepPath}.d");
@@ -577,39 +607,9 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private void WriteCompilerDatabaseFile(GenerationContext context)
-        {
-            string outputFolder = Directory.GetParent(GetCompilerDBPath(context)).FullName;
-            string outputPath = GetCompilerDBPath(context);
-            if (!Directory.Exists(outputFolder))
-            {
-                Directory.CreateDirectory(outputFolder);
-            }
-            else if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-            
-            string ninjaFilePath = KitsRootPaths.GetNinjaPath();
-            string command = $"-f {GetPerConfigFilePath(context.Configuration, context.Compiler)} {Template.CompDBBuildStatement(context)} --quiet >> {outputPath}";
-
-            Process process = new Process();
-            ProcessStartInfo startInfo = new ProcessStartInfo();
-            startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            startInfo.FileName = "cmd.exe";
-            startInfo.Arguments = $"/C {ninjaFilePath} {command}";
-            process.StartInfo = startInfo;
-            process.Start();
-        }
-
         private string GetPerConfigFileName(Project.Configuration config, Compiler compiler)
         {
             return $"{config.Project.Name}.{config.Name}.{compiler}{NinjaExtension}";
-        }
-
-        private string GetCompilerDBPath(GenerationContext context)
-        {
-            return $"{Path.Combine(context.Configuration.ProjectPath, "clang_tools", $"{Template.PerConfigFolderFormat(context)}", "compile_commands.json")}";
         }
 
         private string GetPerConfigFilePath(Project.Configuration config, Compiler compiler)
@@ -734,7 +734,7 @@ namespace Sharpmake.Generators.Generic
             Strings res = new Strings();
             foreach (string file in objFilePaths)
             {
-                res.Append(CreateNinjaFilePath(file));
+                res.Add(CreateNinjaFilePath(file));
             }
 
             return res;
@@ -748,9 +748,14 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private string GetCompilerPath(GenerationContext context)
+        private string GetCppCompilerPath(GenerationContext context)
         {
-            return KitsRootPaths.GetCompilerSettings(context.Compiler).BinPath;
+            return KitsRootPaths.GetCompilerSettings(context.Compiler).BinPathForCppCompiler;
+        }
+
+        private string GetCCompilerPath(GenerationContext context)
+        {
+            return KitsRootPaths.GetCompilerSettings(context.Compiler).BinPathForCCompiler;
         }
 
         private string GetLinkerPath(GenerationContext context)
@@ -788,9 +793,17 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"{Template.RuleBegin} {Template.RuleStatement.CompileCppFile(context)}");
             fileGenerator.WriteLine($"  depfile = $out.d");
             fileGenerator.WriteLine($"  deps = {depsValue}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}\"{GetCompilerPath(context)}\" ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}\"{GetCppCompilerPath(context)}\" ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
             fileGenerator.WriteLine($"{Template.DescriptionBegin} Building C++ object $out");
+
             fileGenerator.WriteLine($"");
+            
+            fileGenerator.WriteLine($"# Rule for compiling C files using {context.Compiler}");
+            fileGenerator.WriteLine($"{Template.RuleBegin} {Template.RuleStatement.CompileCFile(context)}");
+            fileGenerator.WriteLine($"  depfile = $out.d");
+            fileGenerator.WriteLine($"  deps = {depsValue}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}\"{GetCCompilerPath(context)}\" ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
+            fileGenerator.WriteLine($"{Template.DescriptionBegin} Building C object $out");
 
             // Linking
 
@@ -815,7 +828,7 @@ namespace Sharpmake.Generators.Generic
             // Compiler DB
             fileGenerator.WriteLine($"# Rule to generate compiler db");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.CompilerDB(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t compdb {Template.RuleStatement.CompileCppFile(context)}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t compdb {Template.RuleStatement.CompileCppFile(context)} {Template.RuleStatement.CompileCFile(context)}");
             fileGenerator.WriteLine($"");
         }
 
@@ -829,7 +842,7 @@ namespace Sharpmake.Generators.Generic
                 string objPath = objPaths.ElementAt(i);
                 string ninjaFilePath = CreateNinjaFilePath(fileToCompile);
 
-                var compileStatement = new CompileStatement(objPath, ninjaFilePath, context);
+                var compileStatement = new CompileStatement(objPath, fileToCompile, ninjaFilePath, context);
                 compileStatement.Defines = context.Configuration.Defines;
                 compileStatement.DepPath = objPath;
                 compileStatement.ImplicitCompilerFlags = GetImplicitCompilerFlags(context, objPath);

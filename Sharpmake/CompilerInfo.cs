@@ -17,19 +17,21 @@ namespace Sharpmake
 
     public class CompilerInfo
     {
-        public CompilerInfo(Compiler compiler, string binPath, string linkerPath, string archivePath, string ranLibPath)
+        public CompilerInfo(Compiler compiler, string binPathForCppCompiler, string linkerPath, string archivePath, string ranLibPath, string binPathForCCompiler)
         {
             Compiler = compiler;
-            BinPath = binPath;
+            BinPathForCppCompiler = binPathForCppCompiler;
             LinkerPath = linkerPath;
             ArchiverPath = archivePath;
             RanLibPath = ranLibPath;
+            BinPathForCCompiler = binPathForCCompiler;
         }
 
         public Compiler Compiler { get; set; }
-        public string BinPath { get; set; }
+        public string BinPathForCppCompiler { get; set; }
         public string LinkerPath { get; set; }
         public string ArchiverPath { get; set; }
         public string RanLibPath { get; set; }
+        public string BinPathForCCompiler { get; set; }
     }
 }

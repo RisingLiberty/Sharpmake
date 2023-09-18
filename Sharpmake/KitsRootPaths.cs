@@ -159,9 +159,14 @@ namespace Sharpmake
             throw new NotImplementedException("No WindowsTargetPlatformVersion associated with " + devEnv);
         }
 
-        public static void SetCompilerPaths(Compiler compiler, string compilerPath, string linkerPath, string archiverPath, string ranLibPath)
+        public static void SetCompilerPaths(Compiler compiler, string compilerCppPath, string linkerPath, string archiverPath, string ranLibPath, string compilerCPath = null)
         {
-            s_compilerInfo.GetValueOrAdd(compiler, new CompilerInfo(compiler, compilerPath, linkerPath, archiverPath, ranLibPath));
+            if (string.IsNullOrEmpty(compilerCPath))
+            {
+                compilerCPath = compilerCppPath;
+            }
+
+            s_compilerInfo.GetValueOrAdd(compiler, new CompilerInfo(compiler, compilerCppPath, linkerPath, archiverPath, ranLibPath, compilerCPath));
         }
 
         public static CompilerInfo GetCompilerSettings(Compiler compiler)
