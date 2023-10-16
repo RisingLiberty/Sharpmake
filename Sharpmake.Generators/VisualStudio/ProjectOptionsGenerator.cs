@@ -202,7 +202,7 @@ namespace Sharpmake.Generators.VisualStudio
                     }
                     break;
                 case Project.Configuration.OutputType.Lib:
-                    context.Options["ConfigurationType"] = context.Configuration.IsFastBuild ? "Makefile" : "StaticLibrary";
+                    context.Options["ConfigurationType"] = context.Configuration.IsFastBuild || context.Configuration.CustomBuildSettings != null ? "Makefile" : "StaticLibrary";
                     break;
                 case Project.Configuration.OutputType.Utility:
                     context.Options["ConfigurationType"] = "Utility";
