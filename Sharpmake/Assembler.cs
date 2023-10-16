@@ -34,7 +34,7 @@ namespace Sharpmake
 {
     public class Assembler
     {
-        public const Options.CSharp.LanguageVersion SharpmakeScriptsCSharpVersion = Options.CSharp.LanguageVersion.CSharp7;
+        public const Options.CSharp.LanguageVersion SharpmakeScriptsCSharpVersion = Options.CSharp.LanguageVersion.CSharp8;
 #if NETFRAMEWORK
         public const DotNetFramework SharpmakeDotNetFramework = DotNetFramework.v4_7_2;
 #else
