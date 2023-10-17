@@ -25,7 +25,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCopyright("Copyright \u00A9 Ubisoft 2017-2022")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
-[assembly: AssemblyInformationalVersion("Rex - 0.12")]
+[assembly: AssemblyInformationalVersion("Rex - 0.13")]
 
 // Setting ComVisible to false makes the types in this assembly not visible 
 // to COM components.  If you need to access a type in this assembly from 
