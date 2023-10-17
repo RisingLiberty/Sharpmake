@@ -265,7 +265,7 @@ namespace Sharpmake.Generators.Generic
                     fileGenerator.Write($" {path}");
                 }
 
-                fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
+                fileGenerator.WriteLine("");
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{CreateNinjaFilePath(ResponseFilePath)}");
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerFlags(Context)}", implicitLinkerFlags);
@@ -548,16 +548,6 @@ namespace Sharpmake.Generators.Generic
             throw new Error("Failed to find project path");
         }
 
-        private void GenerateIncludes(FileGenerator fileGenerator, GenerationContext context)
-        { 
-            foreach (var dependency in context.Configuration.ResolvedDependencies)
-            {
-                var compiler = dependency.Target.GetFragment<Compiler>();
-                var path = GetPerConfigFilePath(dependency, compiler);
-                fileGenerator.WriteLine($"include {CreateNinjaFilePath(path)}");
-            }
-        }
-
         private void WritePerConfigFile(GenerationContext context, Strings filesToCompile, List<string> generatedFiles, List<string> skipFiles)
         {
             Strings ninjaObjFilePaths = GetNinjaObjPaths(context);
@@ -573,11 +563,6 @@ namespace Sharpmake.Generators.Generic
             GenerateHeader(fileGenerator);
 
             fileGenerator.WriteLine("");
-
-            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-                GenerateIncludes(fileGenerator, context);
-            }
 
             GenerateRules(fileGenerator, context);
 
