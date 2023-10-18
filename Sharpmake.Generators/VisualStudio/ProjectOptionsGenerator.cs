@@ -187,7 +187,7 @@ namespace Sharpmake.Generators.VisualStudio
                 case Project.Configuration.OutputType.DotNetConsoleApp:
                 case Project.Configuration.OutputType.DotNetWindowsApp:
                     {
-                        context.Options["ConfigurationType"] = context.Configuration.IsFastBuild ? "Makefile" : "Application";
+                        context.Options["ConfigurationType"] = context.Configuration.IsFastBuild || context.Configuration.CustomBuildSettings != null ? "Makefile" : "Application";
                     }
                     break;
                 case Project.Configuration.OutputType.Dll:
@@ -197,7 +197,7 @@ namespace Sharpmake.Generators.VisualStudio
                         {
                             throw new Error($"Current platform {context.Configuration.Platform} doesn't support shared lib output type: Project {context.Project.GetType()} conf {context.Configuration.Target}");
                         }
-                        context.Options["ConfigurationType"] = context.Configuration.IsFastBuild ? "Makefile" : "DynamicLibrary";
+                        context.Options["ConfigurationType"] = context.Configuration.IsFastBuild || context.Configuration.CustomBuildSettings != null ? "Makefile" : "DynamicLibrary";
                         context.CommandLineOptions["ConfigurationType"] = @"/D""_WINDLL""";
                     }
                     break;
