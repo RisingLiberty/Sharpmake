@@ -82,9 +82,9 @@
                 {
                     return $"{RulePrefix}compdb_{PerConfigFormat(context)}";
                 }
-                public static string LaunchNinja(GenerationContext context)
+                public static string TouchFile(GenerationContext context)
                 {
-                    return $"{RulePrefix}launch_ninja_{PerConfigFormat(context)}";
+                    return $"{RulePrefix}touch_file_{PerConfigFormat(context)}";
                 }
             }
 
