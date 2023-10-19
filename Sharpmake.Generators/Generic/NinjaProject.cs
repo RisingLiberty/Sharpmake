@@ -273,7 +273,7 @@ namespace Sharpmake.Generators.Generic
                 }
                 else
                 {
-                    fileGenerator.WriteLine("");
+                    fileGenerator.WriteLine(GetNinjaTouchFileDependencies(Context));
                 }
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{CreateNinjaFilePath(ResponseFilePath)}");
@@ -294,7 +294,21 @@ namespace Sharpmake.Generators.Generic
 
         private class TouchStatement
         {
+            public string NinjaFilePath { get; }
+            public GenerationContext Context { get; }
 
+            public TouchStatement(GenerationContext context, string ninjaFilePath)
+            {
+                Context = context;
+                NinjaFilePath = ninjaFilePath;
+            }
+
+            public override string ToString()
+            {
+                string buildStatement = $"{Template.BuildBegin}{NinjaFilePath}: {Template.RuleStatement.TouchFile(Context)}";
+
+                return buildStatement;
+            }
         }
 
         private static readonly string NinjaExtension = ".ninja";
@@ -349,6 +363,13 @@ namespace Sharpmake.Generators.Generic
             }
             return result;
         }
+        private static string GenerateOutputPath(string dependencyDir, string dependencyFileName, string configName, string compilerName)
+        {
+            string dependencyStem = Path.GetFileNameWithoutExtension(dependencyFileName);
+            string dependencyExtension = Path.GetExtension(dependencyFileName);
+            string fullDependencyFilename = UniqueOutputFilename(dependencyStem, configName, compilerName, dependencyExtension);
+            return Path.Combine(dependencyDir, fullDependencyFilename);
+        }
 
         private bool ShouldGenerateVSNinjaFiles(Project project)
         {
@@ -362,6 +383,7 @@ namespace Sharpmake.Generators.Generic
 
             return false;
         }
+
 
         // A ninja file is always accompanied by a dependency and a no-dependency file.
         // This is because Visual Studio (and I'm sure other IDEs) handle the dependency chain for us
@@ -474,6 +496,33 @@ namespace Sharpmake.Generators.Generic
             }
 
             return result;
+        }
+
+        private static string GetNinjaTouchFileDependencies(GenerationContext context)
+        {
+            string result = "";
+            string prefix = " ";
+
+            if (context.Configuration.ResolvedDependencies.Count() > 0)
+            {
+                result += prefix;
+            }
+
+            for (int i = 0; i < context.Configuration.DependenciesBuiltTargetsLibraryFiles.Count; ++i)
+            {
+                string dependencyFilename = context.Configuration.DependenciesBuiltTargetsLibraryFiles[i];
+                string dependencyDir = context.Configuration.DependenciesBuiltTargetsLibraryPaths[i];
+                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Name, context.Compiler.ToString());
+                string ninjaFullPath = CreateNinjaFilePath(fullPath);
+
+                result += ninjaFullPath;
+                result += " ";
+            }
+
+            return result;
+
+
+
         }
 
         private void WriteProjectFile(Builder builder, string projectFilePath, Project project, List<Project.Configuration> configurations, List<string> generatedFiles, List<string> skipFiles, bool shouldGenerateNinjaFilesForVS)
@@ -633,16 +682,17 @@ namespace Sharpmake.Generators.Generic
                 fileGenerator.WriteLine(compileStatement.ToString());
             }
 
-            if (shouldGenerateNinjaFilesForVS)
+            if (shouldGenerateNinjaFilesForVS && context.Configuration.Output != Project.Configuration.OutputType.Lib)
             {
-                List<TouchStatement> linkStatements = GenerateTouchStatements(context, GetObjPaths(context), ninjaObjFilePaths, shouldGenerateNinjaFilesForVS);
-
+                List<TouchStatement> touchStatements = GenerateTouchStatements(context);
 
                 foreach (var touchStatement in touchStatements)
                 {
                     fileGenerator.WriteLine(touchStatement.ToString());
                 }
             }
+
+            fileGenerator.WriteLine("");
 
             foreach (var linkStatement in linkStatements)
             {
@@ -709,9 +759,15 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
+        private static string UniqueOutputFilename(string targetFileFullName, string configName, string compiler, string targetFileFullExtension)
+        {
+            return $"{targetFileFullName}_{configName}_{compiler}{targetFileFullExtension}";
+
+        }
+
         private static string FullOutputPath(GenerationContext context)
         {
-            string fullFileName = $"{context.Configuration.TargetFileFullName}_{context.Configuration.Name}_{context.Compiler}{context.Configuration.TargetFileFullExtension}";
+            string fullFileName = UniqueOutputFilename(context.Configuration.TargetFileFullName, context.Configuration.Name, context.Compiler.ToString(), context.Configuration.TargetFileFullExtension);
             return CreateNinjaFilePath($"{Path.Combine(context.Configuration.TargetPath, fullFileName)}");
         }
 
@@ -982,6 +1038,23 @@ namespace Sharpmake.Generators.Generic
 
             return statements;
         }
+
+        private List<TouchStatement> GenerateTouchStatements(GenerationContext context)
+        {
+            List<TouchStatement> touchStatements = new List<TouchStatement>();
+            for (int i = 0; i < context.Configuration.DependenciesBuiltTargetsLibraryPaths.Count; ++i)
+            {
+                string dependencyFilename = context.Configuration.DependenciesBuiltTargetsLibraryFiles[i];
+                string dependencyDir = context.Configuration.DependenciesBuiltTargetsLibraryPaths[i];
+                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Name, context.Compiler.ToString());
+                string ninjaFullPath = CreateNinjaFilePath(fullPath);
+
+                touchStatements.Add(new TouchStatement(context, ninjaFullPath));
+            }
+
+            return touchStatements;
+        }
+
         private static string GeneratePhonyName(Project.Configuration config, Compiler compiler)
         {
             return $"{ config.Name }_{ compiler}_{ config.TargetFileFullName}".ToLower();
