@@ -267,13 +267,20 @@ namespace Sharpmake.Generators.Generic
                     fileGenerator.Write($" {path}");
                 }
 
-                if (!ShouldGenerateNinjaFilesForVS && Context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
                 {
-                    fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
+                    if (!ShouldGenerateNinjaFilesForVS)
+                    {
+                        fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
+                    }
+                    else
+                    {
+                        fileGenerator.WriteLine(GetNinjaTouchFileDependencies(Context));
+                    }
                 }
                 else
                 {
-                    fileGenerator.WriteLine(GetNinjaTouchFileDependencies(Context));
+                    fileGenerator.WriteLine("");
                 }
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{CreateNinjaFilePath(ResponseFilePath)}");
@@ -677,7 +684,7 @@ namespace Sharpmake.Generators.Generic
             // otherwise we'll be rebuilding it every time
             if (shouldGenerateNinjaFilesForVS)
             {
-            fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.ProjectPath, ".ninja")}");
+                fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.ProjectPath, ".ninja")}");
             }
             // however, when dealing with ninja files that build their dependencies
             // all of them need to point to the same location as ninja resets the builddir every time otherwise
