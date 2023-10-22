@@ -671,7 +671,21 @@ namespace Sharpmake.Generators.Generic
                 GenerateIncludes(fileGenerator, context);
             }
 
+            // When we generate ninja files for visual studio
+            // We need to make sure the ninja logs and dependency
+            // is always pointing at the same directory
+            // otherwise we'll be rebuilding it every time
+            if (shouldGenerateNinjaFilesForVS)
+            {
             fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.ProjectPath, ".ninja")}");
+            }
+            // however, when dealing with ninja files that build their dependencies
+            // all of them need to point to the same location as ninja resets the builddir every time otherwise
+            // resulting in projects being rebuild every time
+            else
+            {
+                fileGenerator.WriteLine($"builddir = .ninja");
+            }
 
             GenerateRules(fileGenerator, context, shouldGenerateNinjaFilesForVS);
 
