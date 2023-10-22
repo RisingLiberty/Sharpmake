@@ -1292,6 +1292,30 @@ namespace Sharpmake
                     {
                         for (int i = 0; i < configurations.Count; ++i)
                         {
+                            for (int j = 0; j < configurations.Count; ++j)
+                            {
+                                Project.Configuration confI = pair.Value[i];
+                                Project.Configuration confJ = pair.Value[j];
+
+                                DevEnv envI = confI.Target.GetFragment<DevEnv>();
+                                DevEnv envJ = confJ.Target.GetFragment<DevEnv>();
+
+                                if (envI != envJ)
+                                {
+                                    if (Util.GetProjectFileExtension(confI) == Util.GetProjectFileExtension(confJ))
+                                    {
+                                        throw new Error("Multiple generator cannot output to the same file:" + Environment.NewLine + "\t'{0}' and '{1}' try to generate '{2}'",
+                                        envI, envJ, projectFile);
+                                    }
+                                }
+                            }
+                        }
+
+
+
+
+                        for (int i = 0; i < configurations.Count; ++i)
+                        {
                             Project.Configuration conf = pair.Value[i];
                             if (devEnv != conf.Target.GetFragment<DevEnv>())
                             {
