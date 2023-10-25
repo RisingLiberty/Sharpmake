@@ -2369,7 +2369,6 @@ namespace Sharpmake
             public Strings ResolvedSourceFilesWithCompileAsWinRTOption = new Strings();
             public Strings ResolvedSourceFilesWithExcludeAsWinRTOption = new Strings();
 
-            public bool NinjaGenerateCompilerDB = false;
             public bool NinjaGenerateCodeCoverage = false;
             public bool NinjaEnableAddressSanitizer = false;
             public bool NinjaEnableUndefinedBehaviorSanitizer = false;
