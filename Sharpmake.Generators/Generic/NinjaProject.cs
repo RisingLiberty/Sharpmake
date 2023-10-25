@@ -967,9 +967,9 @@ namespace Sharpmake.Generators.Generic
 
             // Linking
 
-            string outputType = context.Configuration.Output == Project.Configuration.OutputType.Exe
-                ? "executable"
-                : "archive";
+            string description = context.Configuration.Output == Project.Configuration.OutputType.Exe
+                ? "Linking C++ executable"
+                : "Creating C++ archive";
 
             // for a static lib, which just a collection of obj files
             // we remove the previously generated one if it exists
@@ -982,7 +982,7 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"# Rule for linking C++ objects");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
             fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C ${Template.BuildStatement.PreBuild(context)} {impliedPrebuild} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)}\"");
-            fileGenerator.WriteLine($"{Template.DescriptionBegin}Linking C++ {outputType} ${Template.BuildStatement.TargetFile(context)}");
+            fileGenerator.WriteLine($"{Template.DescriptionBegin}{description} ${Template.BuildStatement.TargetFile(context)}");
             fileGenerator.WriteLine($"  restat = $RESTAT");
             fileGenerator.WriteLine($"");
 
