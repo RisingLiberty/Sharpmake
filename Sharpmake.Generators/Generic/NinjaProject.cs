@@ -231,18 +231,7 @@ namespace Sharpmake.Generators.Generic
                 Context = context;
                 OutputPath = outputPath;
 
-                // for a static lib, which just a collection of obj files
-                // we remove the previously generated one if it exists
-                // as that's supposed to be faster than letting the toolchain
-                // update the symbols of an existing one
-                if (context.Configuration.Output == Project.Configuration.OutputType.Lib)
-                {
-                    PreBuild = $"if exists {FullOutputPath(context)} del {FullOutputPath(context)}";
-                }
-                else
-                {
-                    PreBuild = "cd .";
-                }
+                PreBuild = "cd .";
                 PostBuild = "cd .";
 
                 ShouldGenerateNinjaFilesForVS = shouldGenerateNinjaFilesForVS;
@@ -924,6 +913,12 @@ namespace Sharpmake.Generators.Generic
             return KitsRootPaths.GetCompilerSettings(context.Compiler).BinPathForCCompiler;
         }
 
+        private string DeleteOutputIfExists(GenerationContext context)
+        {
+            string targetPath = FullOutputPath(context);
+            return $"cmd.exe /C if exist \"{targetPath}\" del \"{targetPath}\"";
+        }
+
         private string GetLinkerPath(GenerationContext context)
         {
             return context.Configuration.Output == Project.Configuration.OutputType.Lib
@@ -976,9 +971,17 @@ namespace Sharpmake.Generators.Generic
                 ? "executable"
                 : "archive";
 
+            // for a static lib, which just a collection of obj files
+            // we remove the previously generated one if it exists
+            // as that's supposed to be faster than letting the toolchain
+            // update the symbols of an existing one
+            string impliedPrebuild = context.Configuration.Output == Project.Configuration.OutputType.Lib
+                ? $" && {DeleteOutputIfExists(context)}"
+                : "";
+
             fileGenerator.WriteLine($"# Rule for linking C++ objects");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C \"${Template.BuildStatement.PreBuild(context)} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)}\"");
+            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C ${Template.BuildStatement.PreBuild(context)} {impliedPrebuild} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)}\"");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}Linking C++ {outputType} ${Template.BuildStatement.TargetFile(context)}");
             fileGenerator.WriteLine($"  restat = $RESTAT");
             fileGenerator.WriteLine($"");
@@ -1067,8 +1070,8 @@ namespace Sharpmake.Generators.Generic
                 linkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
             }
             linkStatement.LinkerLibs = linkerLibs;
-            linkStatement.PreBuild += GetPreBuildCommands(context);
-            linkStatement.PostBuild += GetPostBuildCommands(context);
+            linkStatement.PreBuild = GetPreBuildCommands(context);
+            linkStatement.PostBuild = GetPostBuildCommands(context);
             linkStatement.TargetPdb = context.Configuration.LinkerPdbFilePath;
 
             statements.Add(linkStatement);
