@@ -231,7 +231,18 @@ namespace Sharpmake.Generators.Generic
                 Context = context;
                 OutputPath = outputPath;
 
+                // for a static lib, which just a collection of obj files
+                // we remove the previously generated one if it exists
+                // as that's supposed to be faster than letting the toolchain
+                // update the symbols of an existing one
+                if (context.Configuration.Output == Project.Configuration.OutputType.Lib)
+                {
+                    PreBuild = $"if exists {FullOutputPath(context)} del {FullOutputPath(context)}";
+                }
+                else
+                {
                 PreBuild = "cd .";
+                }
                 PostBuild = "cd .";
 
                 ShouldGenerateNinjaFilesForVS = shouldGenerateNinjaFilesForVS;
