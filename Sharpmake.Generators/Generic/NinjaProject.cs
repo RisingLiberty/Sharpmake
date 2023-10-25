@@ -241,7 +241,7 @@ namespace Sharpmake.Generators.Generic
                 }
                 else
                 {
-                PreBuild = "cd .";
+                    PreBuild = "cd .";
                 }
                 PostBuild = "cd .";
 
@@ -270,7 +270,7 @@ namespace Sharpmake.Generators.Generic
                     libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
                 }
 
-                fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)}");
+                fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullNinjaOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)}");
                 fileGenerator.Write(" | ");
                 
                 foreach (string path in ObjFilePaths)
@@ -530,7 +530,7 @@ namespace Sharpmake.Generators.Generic
             {
                 string dependencyFilename = context.Configuration.DependenciesBuiltTargetsLibraryFiles[i];
                 string dependencyDir = context.Configuration.DependenciesBuiltTargetsLibraryPaths[i];
-                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Name, context.Compiler.ToString());
+                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString());
                 string ninjaFullPath = CreateNinjaFilePath(fullPath);
 
                 result += ninjaFullPath;
@@ -579,7 +579,7 @@ namespace Sharpmake.Generators.Generic
                 foreach (var config in compiler.Value)
                 {
                     GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
-                    sb.AppendLine($"\t\t\t{quote}{config.Name.ToLower()}{quote}:");
+                    sb.AppendLine($"\t\t\t{quote}{config.Target.ProjectConfigurationName.ToLower()}{quote}:");
                     sb.AppendLine($"\t\t\t{{");
                     string ninjaFilePath = GetPerConfigFilePathWithDeps(context.Configuration, context.Compiler);
                     sb.AppendLine($"\t\t\t\t{quote}ninja_file{quote} : {quote}{ninjaFilePath}{quote},");
@@ -747,7 +747,7 @@ namespace Sharpmake.Generators.Generic
 
         private string GetPerConfigFileName(Project.Configuration config, Compiler compiler)
         {
-            return $"{config.Project.Name}.{config.Name}.{compiler}{NinjaExtension}";
+            return $"{config.Project.Name}.{config.Target.ProjectConfigurationName}.{compiler}{NinjaExtension}";
         }
 
         private string GetPerConfigFilePath(Project.Configuration config, Compiler compiler, bool shouldGenerateNinjaFilesForVS)
@@ -799,15 +799,20 @@ namespace Sharpmake.Generators.Generic
 
         private static string FullOutputPath(GenerationContext context)
         {
-            string fullFileName = UniqueOutputFilename(context.Configuration.TargetFileFullName, context.Configuration.Name, context.Compiler.ToString(), context.Configuration.TargetFileFullExtension);
-            return CreateNinjaFilePath($"{Path.Combine(context.Configuration.TargetPath, fullFileName)}");
+            string fullFileName = UniqueOutputFilename(context.Configuration.TargetFileFullName, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString(), context.Configuration.TargetFileFullExtension);
+            return Path.Combine(context.Configuration.TargetPath, fullFileName);
+        }
+
+        private static string FullNinjaOutputPath(GenerationContext context)
+        {
+            return CreateNinjaFilePath(FullOutputPath(context));
         }
 
         private static string CreateResponseFile(GenerationContext context, IsLinkerResponse.Value isLinkerRespponse, Strings files)
         {
             string fullFileName = isLinkerRespponse == IsLinkerResponse.Value.Yes
-                ? $"{context.Configuration.TargetFileFullName}_{context.Configuration.Name}_{context.Compiler}_linker_response.txt"
-                : $"{context.Configuration.TargetFileFullName}_{context.Configuration.Name}_{context.Compiler}_compiler_response.txt";
+                ? $"{context.Configuration.TargetFileFullName}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}_linker_response.txt"
+                : $"{context.Configuration.TargetFileFullName}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}_compiler_response.txt";
             string responseFilePath = Path.Combine(context.Configuration.TargetPath, fullFileName);
 
             StringBuilder sb = new StringBuilder();
@@ -1039,7 +1044,7 @@ namespace Sharpmake.Generators.Generic
         {
             List<LinkStatement> statements = new List<LinkStatement>();
 
-            string outputPath = FullOutputPath(context);
+            string outputPath = FullNinjaOutputPath(context);
             string responseFilePath = CreateResponseFile(context, IsLinkerResponse.Value.Yes, nonNinjaobjFilePaths);
 
             var linkStatement = new LinkStatement(context, outputPath, shouldGenerateNinjaFilesForVS);
@@ -1062,8 +1067,8 @@ namespace Sharpmake.Generators.Generic
                 linkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
             }
             linkStatement.LinkerLibs = linkerLibs;
-            linkStatement.PreBuild = GetPreBuildCommands(context);
-            linkStatement.PostBuild = GetPostBuildCommands(context);
+            linkStatement.PreBuild += GetPreBuildCommands(context);
+            linkStatement.PostBuild += GetPostBuildCommands(context);
             linkStatement.TargetPdb = context.Configuration.LinkerPdbFilePath;
 
             statements.Add(linkStatement);
@@ -1078,7 +1083,7 @@ namespace Sharpmake.Generators.Generic
             {
                 string dependencyFilename = context.Configuration.DependenciesBuiltTargetsLibraryFiles[i];
                 string dependencyDir = context.Configuration.DependenciesBuiltTargetsLibraryPaths[i];
-                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Name, context.Compiler.ToString());
+                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString());
                 string ninjaFullPath = CreateNinjaFilePath(fullPath);
 
                 touchStatements.Add(new TouchStatement(context, ninjaFullPath));
@@ -1089,14 +1094,14 @@ namespace Sharpmake.Generators.Generic
 
         private static string GeneratePhonyName(Project.Configuration config, Compiler compiler)
         {
-            return $"{ config.Name }_{ compiler}_{ config.TargetFileFullName}".ToLower();
+            return $"{ config.Target.ProjectConfigurationName }_{ compiler}_{ config.TargetFileFullName}".ToLower();
         }
 
         private void GenerateProjectBuilds(FileGenerator fileGenerator, GenerationContext context)
         {
             //build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
             string phony_name = GeneratePhonyName(context.Configuration, context.Compiler);
-            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullOutputPath(context)}");
+            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullNinjaOutputPath(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CleanBuildStatement(context)}: {Template.RuleStatement.Clean(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CompDBBuildStatement(context)}: {Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"");
@@ -1386,7 +1391,7 @@ namespace Sharpmake.Generators.Generic
                 string stem = Path.GetFileNameWithoutExtension(libFile);
                 string extension = Path.GetExtension(libFile);
 
-                string fullFileName = $"{stem}_{context.Configuration.Name}_{context.Compiler}{extension}";
+                string fullFileName = $"{stem}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}{extension}";
                 result.Add(fullFileName);
             }
             return result;
