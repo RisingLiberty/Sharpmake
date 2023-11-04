@@ -267,16 +267,9 @@ namespace Sharpmake.Generators.Generic
                     fileGenerator.Write($" {path}");
                 }
 
-                if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                if (ShouldGenerateNinjaFilesForVS && Context.Configuration.Output != Project.Configuration.OutputType.Lib)
                 {
-                    if (!ShouldGenerateNinjaFilesForVS)
-                    {
-                        fileGenerator.WriteLine(GetNinjaDependencyTargets(Context));
-                    }
-                    else
-                    {
-                        fileGenerator.WriteLine(GetNinjaTouchFileDependencies(Context));
-                    }
+                    fileGenerator.WriteLine(GetNinjaTouchFileDependencies(Context));
                 }
                 else
                 {
@@ -578,7 +571,7 @@ namespace Sharpmake.Generators.Generic
                         sb.AppendLine($"\t\t\t\t{quote}ninja_file_no_deps{quote} : {quote}{ninjaFilePathNoDeps}{quote},");
                     }
                     sb.AppendLine($"\t\t\t\t{quote}dependencies{quote} : [");
-                    string dependencies = GetDependencies(context, 4);
+                    string dependencies = GetBuildDependencies(context, 4);
                     sb.AppendLine($"{dependencies}");
                     sb.AppendLine($"\t\t\t\t]");
                     sb.AppendLine($"\t\t\t}},");
@@ -609,9 +602,16 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private string GetDependencies(GenerationContext context, int indentLevel = 0)
+        private string GetBuildDependencies(GenerationContext context, int indentLevel = 0)
         {
             string result = "";
+
+            // A static lib doesn't have any build dependencies
+            if (context.Configuration.Output == Project.Configuration.OutputType.Lib)
+            {
+                return result;
+            }
+
             string suffix = ",\n";
             string indent = indentLevel > 0 ? Enumerable.Repeat("\t", (int)indentLevel).Aggregate((sum, next) => sum + next) : "";
 
@@ -646,17 +646,6 @@ namespace Sharpmake.Generators.Generic
             throw new Error("Failed to find project path");
         }
 
-        private void GenerateIncludes(FileGenerator fileGenerator, GenerationContext context)
-        {
-            foreach (var dependency in context.Configuration.ResolvedDependencies)
-            {
-                var compiler = dependency.Target.GetFragment<Compiler>();
-                var path = GetPerConfigFilePathWithDeps(dependency, compiler);
-                fileGenerator.WriteLine($"include {CreateNinjaFilePath(path)}");
-            }
-        }
-
-
         private void WritePerConfigFile(GenerationContext context, Strings filesToCompile, List<string> generatedFiles, List<string> skipFiles, bool shouldGenerateNinjaFilesForVS)
         {
             Strings ninjaObjFilePaths = GetNinjaObjPaths(context);
@@ -672,27 +661,7 @@ namespace Sharpmake.Generators.Generic
             GenerateHeader(fileGenerator);
 
             fileGenerator.WriteLine("");
-
-            if (!shouldGenerateNinjaFilesForVS && context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-                GenerateIncludes(fileGenerator, context);
-            }
-
-            // When we generate ninja files for visual studio
-            // We need to make sure the ninja logs and dependency
-            // is always pointing at the same directory
-            // otherwise we'll be rebuilding it every time
-            if (shouldGenerateNinjaFilesForVS)
-            {
-                fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.ProjectPath, ".ninja")}");
-            }
-            // however, when dealing with ninja files that build their dependencies
-            // all of them need to point to the same location as ninja resets the builddir every time otherwise
-            // resulting in projects being rebuild every time
-            else
-            {
-                fileGenerator.WriteLine($"builddir = .ninja");
-            }
+            fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.IntermediatePath, ".ninja")}");
 
             GenerateRules(fileGenerator, context, shouldGenerateNinjaFilesForVS);
 
