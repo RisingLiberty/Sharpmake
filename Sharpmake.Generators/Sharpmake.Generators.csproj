@@ -122,6 +122,7 @@
     <Compile Include="Generic\Makefile.cs" />
     <Compile Include="Generic\NinjaProject.Template.cs" />
     <Compile Include="Generic\NinjaProject.cs" />
+    <Compile Include="Generic\VsCodeProject.cs" />
     <Compile Include="IFileGenerator.cs" />
     <Compile Include="IGenerationContext.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

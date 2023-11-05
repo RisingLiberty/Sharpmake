@@ -1451,6 +1451,9 @@ namespace Sharpmake
                     case DevEnv.ninja:
                         return ".ninja";
 
+                    case DevEnv.vscode:
+                        return ".json";
+
                     default:
                         throw new NotImplementedException("GetProjectFileExtension called with unknown DevEnv: " + devEnv);
                 }
@@ -1801,6 +1804,8 @@ namespace Sharpmake
                     return "";
                 case DevEnv.ninja:
                     return ".nsln";
+                case DevEnv.vscode:
+                    return ".json";
                 default:
                     throw new Error("Unknown DevEnv for solution extension");
             }

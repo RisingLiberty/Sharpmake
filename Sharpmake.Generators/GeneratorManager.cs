@@ -59,6 +59,10 @@ namespace Sharpmake.Generators
 
         private NinjaProject _ninjaProjectGenerator = null;
         public NinjaProject NinjaProjectGenerator => _ninjaProjectGenerator ?? (_ninjaProjectGenerator = new NinjaProject());
+
+        private VsCodeProject _vsCodeProjectGenerator = null;
+        public VsCodeProject VsCodeProjectGenerator => _vsCodeProjectGenerator ?? (_vsCodeProjectGenerator = new VsCodeProject());
+
         #endregion
 
         // singleton
@@ -122,6 +126,9 @@ namespace Sharpmake.Generators
                             NinjaProjectGenerator.Generate(builder, project, configurations, projectFile, generatedFiles, skipFiles);
                             break;
                         }
+                    case DevEnv.vscode:
+                            VsCodeProjectGenerator.Generate(builder, project, configurations, projectFile, generatedFiles, skipFiles);
+                            break;
                     default:
                         {
                             throw new Error("Generate called with unknown DevEnv: " + devEnv);
@@ -191,6 +198,10 @@ namespace Sharpmake.Generators
                                 NinjaProjectGenerator.Generate(builder, solution, devEnvConfigurations, solutionFile, generatedFiles, skipFiles);
                                 break;
                             }
+
+                        case DevEnv.vscode:
+                                VsCodeProjectGenerator.Generate(builder, solution, devEnvConfigurations,  solutionFile, generatedFiles, skipFiles);
+                            break;
                         default:
                             {
                                 throw new Error("Generate called with unknown DevEnv: " + devEnv);

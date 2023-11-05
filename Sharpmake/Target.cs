@@ -70,6 +70,11 @@ namespace Sharpmake
         ninja = 1 << 10,
 
         /// <summary>
+        /// Visual Studio Code
+        /// </summary>
+        vscode = 1 << 11,
+
+        /// <summary>
         /// All supported Visual Studio versions.
         /// </summary>
         [CompositeFragment]
