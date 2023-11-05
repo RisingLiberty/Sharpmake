@@ -478,26 +478,6 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private static string GetNinjaDependencyTargets(GenerationContext context)
-        {
-            string result = "";
-            string prefix = " ";
-
-            if (context.Configuration.ResolvedDependencies.Count() > 0)
-            {
-                result += prefix;
-            }
-
-            foreach (var dependency in context.Configuration.ResolvedDependencies)
-            {
-                string phony_name = GeneratePhonyName(dependency, dependency.Target.GetFragment<Compiler>());
-                result += phony_name;
-                result += " ";
-            }
-
-            return result;
-        }
-
         private static string GetNinjaTouchFileDependencies(GenerationContext context)
         {
             string result = "";
