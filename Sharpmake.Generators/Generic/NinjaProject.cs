@@ -954,23 +954,33 @@ namespace Sharpmake.Generators.Generic
 
         private Strings GenerateUnityFiles(Project.Configuration config, Strings filesToCompile)
         {
-            return filesToCompile;
-            // Unity files are gnerated
-            //Strings result = new Strings();
+            Strings result = new Strings();
 
-            //FileStatus status = repo.RetrieveStatus(fileToCompile);
-            //bool is_modified = (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
-            //if (!is_modified)
-            //{
-            //    context.UnityFileGenerator.AddFile(fileToCompile);
-            //}
-            //else
-            //{
-            //    statements.Add(GenerateCompileStatement(objPath, fileToCompile, ninjaFilePath, context));
-            //}
+            Repository repo = new Repository(Directory.GetCurrentDirectory());
+            UnityFilesGenerator unityFilesGenerator = new UnityFilesGenerator(config.MaxFilesPerUnityFile, config.IntermediatePath);
 
+            foreach (string fileToCompile in filesToCompile)
+            {
+                // Modified files are not added in unity builds as it's faster to exclude them and compile them seperately
+                FileStatus status = repo.RetrieveStatus(fileToCompile);
+                bool isModified = (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
 
-            //return filesToCompile;
+                // of course we don't want to include files the user has specified that we shouldn't
+                bool isExcludeFromJumboBuild = config.ResolvedSourceFilesExcludeFromJumboBuild.Contains(fileToCompile);
+
+                // when not adding to unity file, we add the source file to the result already
+                if (isModified || isExcludeFromJumboBuild)
+                {
+                    result.Add(fileToCompile);
+                }
+                else
+                {
+                    unityFilesGenerator.AddFile(fileToCompile);
+                }
+            }
+
+            result.AddRange(unityFilesGenerator.Generate());
+            return result;
         }
 
         // Write the ninja project file which links
