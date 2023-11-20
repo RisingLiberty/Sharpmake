@@ -6,22 +6,21 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Runtime.InteropServices;
+using LibGit2Sharp;
 
 namespace Sharpmake.Generators.Generic
 {
-    public class YesNoEnum
-    {
-        public enum Value
-        {
-            No,
-            Yes
-        }
-    }
-    public class IsLinkerResponse : YesNoEnum { }
-
+    // A ninja project is the representation of a project
+    // That uses ninja files to build itself.
+    // A ninja project is a json file listing the project name
+    // and its config, which then refer to a ninja file to build the project in that config.
     public partial class NinjaProject : IProjectGenerator
     {
+        // The generation context is a class holding various settings on how to generate the project
+        // It holds the build, project path, project, compiler, configuartion, .. in it, making it
+        // easier to access these settings when performing the generation code
         private class GenerationContext : IGenerationContext
         {
             private Dictionary<Project.Configuration, Options.ExplicitOptions> _projectConfigurationOptions;
@@ -133,14 +132,16 @@ namespace Sharpmake.Generators.Generic
 
         }
 
+        // A compile statement is a build statement to compile a C or C++ file.
         private class CompileStatement
         {
-            private string Name;
-            private string OriginalFilename;
             private string Input;
+            private string Output;
             private GenerationContext Context;
 
+            // Defines needed on the commandline for this compile statement
             public Strings Defines { get; set; }
+            // The path where dependencies will be written to
             public string DepPath { get; set; }
             public Strings ImplicitCompilerFlags { get; set; }
             public Strings CompilerFlags { get; set; }
@@ -148,12 +149,25 @@ namespace Sharpmake.Generators.Generic
             public OrderableStrings SystemIncludes { get; set; }
             public string TargetFilePath { get; set; }
 
-            public CompileStatement(string name, string originalFilename, string input, GenerationContext context)
+            public CompileStatement(GenerationContext context, string input, string output)
             {
-                Name = name;
-                OriginalFilename = originalFilename;
-                Input = input;
                 Context = context;
+                Input = input;
+                Output = output;
+
+                Defines = context.Configuration.Defines;
+                DepPath = ConvertToNinjaFilePath(output);
+                ImplicitCompilerFlags = GetImplicitCompilerFlags(context, output);
+                CompilerFlags = GetCompilerFlags(context);
+
+                OrderableStrings includePaths = context.Configuration.IncludePaths;
+                includePaths.AddRange(context.Configuration.IncludePrivatePaths);
+                includePaths.AddRange(context.Configuration.DependenciesIncludePaths);
+                Includes = includePaths;
+                OrderableStrings systemIncludePaths = context.Configuration.IncludeSystemPaths;
+                systemIncludePaths.AddRange(context.Configuration.DependenciesIncludeSystemPaths);
+                SystemIncludes = systemIncludePaths;
+                TargetFilePath = context.Configuration.CompilerPdbFilePath;
             }
 
             public override string ToString()
@@ -166,35 +180,18 @@ namespace Sharpmake.Generators.Generic
                 string includes = MergeMultipleFlagsToString(Includes, true, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.Include));
                 string systemIncludes = MergeMultipleFlagsToString(SystemIncludes, true, CompilerFlagLookupTable.Get(Context.Compiler, CompilerFlag.SystemInclude));
 
-                bool isCompileAsCFile = Context.Configuration.ResolvedSourceFilesWithCompileAsCOption.Contains(OriginalFilename);
-                string compilerStatement = isCompileAsCFile ? Template.RuleStatement.CompileCFile(Context) : Template.RuleStatement.CompileCppFile(Context);
+                bool isCompileAsCFile = Context.Configuration.ResolvedSourceFilesWithCompileAsCOption.Contains(Output);
+                string compilerStatement = isCompileAsCFile 
+                    ? Template.RuleStatement.CompileCFile(Context) 
+                    : Template.RuleStatement.CompileCppFile(Context);
 
-                // Replace C++ standard with C standard
+                // Some compiler flags need to be changed if we're calling into the C compiler
                 if (isCompileAsCFile)
                 {
-                    string languageStandard = "";
-                    string ClanguageStandard = "";
-
-                    if (Context.Compiler == Compiler.MSVC)
-                    {
-                        Context.CommandLineOptions.TryGetValue("LanguageStandard", out languageStandard);
-                        Context.CommandLineOptions.TryGetValue("LanguageStandard_C", out ClanguageStandard);
-                    }
-                    else // For clang
-                    {
-                        Context.CommandLineOptions.TryGetValue("CppLanguageStd", out languageStandard);
-                        Context.CommandLineOptions.TryGetValue("CLanguageStd", out ClanguageStandard);
-                    }
-
-                    if (ClanguageStandard == FileGeneratorUtilities.RemoveLineTag)
-                    {
-                        ClanguageStandard = "";
-                    }
-
-                    compilerFlags = compilerFlags.Replace(languageStandard, ClanguageStandard);
+                    compilerFlags = ChangeCppStandardToCStandard(compilerFlags);
                 }
 
-                fileGenerator.WriteLine($"{Template.BuildBegin}{Name}: {compilerStatement} {Input}");
+                fileGenerator.WriteLine($"{Template.BuildBegin}{ConvertToNinjaFilePath(Output)}: {compilerStatement} {ConvertToNinjaFilePath(Input)}");
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.Defines(Context)}", defines);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.DepFile(Context)}", $"{DepPath}.d");
@@ -206,12 +203,109 @@ namespace Sharpmake.Generators.Generic
 
                 return fileGenerator.ToString();
             }
+            private string ChangeCppStandardToCStandard(string compilerFlags)
+            {
+                string languageStandard = "";
+                string ClanguageStandard = "";
+
+                if (Context.Compiler == Compiler.MSVC)
+                {
+                    Context.CommandLineOptions.TryGetValue("LanguageStandard", out languageStandard);
+                    Context.CommandLineOptions.TryGetValue("LanguageStandard_C", out ClanguageStandard);
+                }
+                else // For clang
+                {
+                    Context.CommandLineOptions.TryGetValue("CppLanguageStd", out languageStandard);
+                    Context.CommandLineOptions.TryGetValue("CLanguageStd", out ClanguageStandard);
+                }
+
+                if (ClanguageStandard == FileGeneratorUtilities.RemoveLineTag)
+                {
+                    ClanguageStandard = "";
+                }
+
+                return compilerFlags.Replace(languageStandard, ClanguageStandard);
+            }
+
+            // subtract all compiler options from the config and translate them to compiler specific flags
+            private Strings GetImplicitCompilerFlags(GenerationContext context, string ninjaObjPath)
+            {
+                Strings flags = new Strings();
+                switch (context.Configuration.Target.GetFragment<Compiler>())
+                {
+                    case Compiler.MSVC:
+                        flags.Add("/showIncludes"); // used to generate header dependencies
+                        flags.Add("/nologo"); // supress copyright banner in compiler
+                        flags.Add("/TP"); // treat all files on command line as C++ files
+                        flags.Add(" /c"); // don't auto link
+                        flags.Add($" /Fo\"{ninjaObjPath}\""); // obj output path
+                        flags.Add($" /FS"); // force async pdb generation
+                        break;
+                    case Compiler.Clang:
+                        flags.Add(" -MD"); // generate header dependencies
+                        flags.Add(" -MF"); // write the header dependencies to a file
+                        flags.Add($" {ninjaObjPath}.d"); // file to write header dependencies to
+                        flags.Add(" -c"); // don't auto link
+                        flags.Add($" -o\"{ninjaObjPath}\""); // obj output path
+                        if (context.Configuration.NinjaGenerateCodeCoverage)
+                        {
+                            flags.Add("-fprofile-instr-generate");
+                            flags.Add("-fcoverage-mapping");
+                        }
+                        if (context.Configuration.NinjaEnableAddressSanitizer)
+                        {
+                            flags.Add("-fsanitize=address");
+                            context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
+
+                            // disable lto to avoid asan odr issues.
+                            // can't disable them with ASAN_OPTIONS=detect_odr_violation=0 due to unknown bug
+                            // https://github.com/google/sanitizers/issues/647
+                            context.CommandLineOptions["CompilerWholeProgramOptimization"] = FileGeneratorUtilities.RemoveLineTag;
+                            context.LinkerCommandLineOptions["LinkTimeCodeGeneration"] = FileGeneratorUtilities.RemoveLineTag;
+                        }
+                        if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
+                        {
+                            flags.Add("-fsanitize=undefined");
+                            context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
+                        }
+                        if (context.Configuration.NinjaEnableFuzzyTesting)
+                        {
+                            flags.Add("-fsanitize=fuzzer");
+                            context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
+                        }
+                        break;
+                    case Compiler.GCC:
+                        flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
+                        flags.Add($" -o\"{ninjaObjPath}\""); // obj output path
+                        flags.Add(" -c"); // don't auto link
+                        break;
+                    default:
+                        throw new Error("Unknown Compiler used for implicit compiler flags");
+                }
+
+                if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
+                {
+                    if (PlatformRegistry.Get<IPlatformDescriptor>(context.Configuration.Platform).HasSharedLibrarySupport)
+                    {
+                        flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_WINDLL");
+                    }
+                }
+
+                return flags;
+            }
+
+            private Strings GetCompilerFlags(GenerationContext context)
+            {
+                return new Strings(context.CommandLineOptions.Values);
+            }
         }
 
+        // A link statement is a build statement to link a exe or dll files
+        // Link statements take previously build obj files as input.
+        // These obj files are generated from compile statements
         private class LinkStatement
         {
             public string ResponseFilePath { get; set; }
-            public Strings ObjFilePaths { get; set; }
             public Strings ImplicitLinkerFlags { get; set; }
             public Strings Flags { get; set; }
             public Strings ImplicitLinkerPaths { get; set; }
@@ -221,20 +315,37 @@ namespace Sharpmake.Generators.Generic
             public string PreBuild { get; set; }
             public string PostBuild { get; set; }
             public string TargetPdb { get; set; }
-            public bool ShouldGenerateNinjaFilesForVS { get; }
 
             private GenerationContext Context;
-            private string OutputPath;
+            private string Output; // the filepath of the targeted output
+            private Strings Input; // the list of obj files used as input
 
-            public LinkStatement(GenerationContext context, string outputPath, bool shouldGenerateNinjaFilesForVS)
+            public LinkStatement(GenerationContext context, string output, Strings input)
             {
                 Context = context;
-                OutputPath = outputPath;
+                Output = output;
+                Input = input;
 
-                PreBuild = "cd .";
-                PostBuild = "cd .";
+                ResponseFilePath = CreateLinkerResponseFile(context, input);
+                ImplicitLinkerFlags = GetImplicitLinkerFlags(context, output);
+                Flags = GetLinkerFlags(context);
+                ImplicitLinkerPaths = GetImplicitLinkPaths(context);
+                ImplicitLinkerLibs = GetImplicitLinkLibraries(context);
+                LinkerPaths = GetLinkerPaths(context);
+                TargetPdb = context.Configuration.LinkerPdbFilePath;
 
-                ShouldGenerateNinjaFilesForVS = shouldGenerateNinjaFilesForVS;
+                if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    LinkerPaths.AddRange(context.Configuration.DependenciesLibraryPaths);
+                }
+                LinkerLibs = GetLinkLibraries(context);
+                if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    LinkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
+                }
+
+                PreBuild = GetPreBuildCommands(context);
+                PostBuild = GetPostBuildCommands(context);
             }
 
             public override string ToString()
@@ -249,7 +360,7 @@ namespace Sharpmake.Generators.Generic
                 string libraryPaths = "";
                 string libraryFiles = "";
 
-                // when using the regular linker, we can use additional linker libs, if we're creating a static lib that depends on another however, we can't do this
+                // when creating an exe or dll, we can use additional linker libs, if we're creating a static lib that depends on another however, we can't do this
                 // and have to add the archive as an additional input file
                 if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
                 {
@@ -259,62 +370,439 @@ namespace Sharpmake.Generators.Generic
                     libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
                 }
 
-                fileGenerator.Write($"{Template.BuildBegin}{CreateNinjaFilePath(FullNinjaOutputPath(Context))}: {Template.RuleStatement.LinkToUse(Context)}");
+                fileGenerator.Write($"{Template.BuildBegin}{FullNinjaTargetPath(Context)}: {Template.RuleStatement.LinkToUse(Context)}");
                 fileGenerator.Write(" | ");
                 
-                foreach (string path in ObjFilePaths)
+                foreach (string objPath in Input)
                 {
-                    fileGenerator.Write($" {path}");
+                    fileGenerator.Write($" {ConvertToNinjaFilePath(objPath)}");
                 }
 
-                if (ShouldGenerateNinjaFilesForVS && Context.Configuration.Output != Project.Configuration.OutputType.Lib)
-                {
-                    fileGenerator.WriteLine(GetNinjaTouchFileDependencies(Context));
-                }
-                else
-                {
-                    fileGenerator.WriteLine("");
-                }
+                fileGenerator.WriteLine("");
 
-                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{CreateNinjaFilePath(ResponseFilePath)}");
+                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{ConvertToNinjaFilePath(ResponseFilePath)}");
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerFlags(Context)}", implicitLinkerFlags);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerPaths(Context)}", implicitLinkerPaths);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.ImplicitLinkerLibraries(Context)}", implicitLinkerLibs);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerFlags(Context)}", linkerFlags);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerPaths(Context)}", libraryPaths);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerLibraries(Context)}", libraryFiles);
-                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.TargetFile(Context)}", OutputPath);
+                WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.TargetFile(Context)}", Output);
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.TargetPdb(Context)}", TargetPdb);
                 WriteIfNotEmptyOr(fileGenerator, $"  {Template.BuildStatement.PreBuild(Context)}", PreBuild, "cd .");
                 WriteIfNotEmptyOr(fileGenerator, $"  {Template.BuildStatement.PostBuild(Context)}", PostBuild, "cd .");
 
                 return fileGenerator.ToString();
             }
-        }
 
-        private class TouchStatement
-        {
-            public string NinjaFilePath { get; }
-            public GenerationContext Context { get; }
-
-            public TouchStatement(GenerationContext context, string ninjaFilePath)
+            private string CreateLinkerResponseFile(GenerationContext context, Strings inputFiles)
             {
-                Context = context;
-                NinjaFilePath = ninjaFilePath;
+                string fullFileName = $"{context.Configuration.TargetFileFullName}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}_linker_response.txt";
+                string responseFilePath = Path.Combine(context.Configuration.IntermediatePath, fullFileName);
+
+                StringBuilder sb = new StringBuilder();
+                foreach (string file in inputFiles)
+                {
+                    sb.Append($"{file.Replace('\\', '/')} ");
+                }
+
+                File.WriteAllText(responseFilePath, sb.ToString());
+                return responseFilePath;
             }
 
-            public override string ToString()
+            private Strings GetImplicitLinkerFlags(GenerationContext context, string outputPath)
             {
-                string buildStatement = $"{Template.BuildBegin}{NinjaFilePath}: {Template.RuleStatement.TouchFile(Context)}";
+                Strings flags = new Strings();
+                switch (context.Configuration.Target.GetFragment<Compiler>())
+                {
+                    case Compiler.MSVC:
+                        flags.Add($" /OUT:{outputPath}"); // Output file
+                        if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
+                        {
+                            flags.Add(" /dll");
+                        }
+                        break;
+                    case Compiler.Clang:
+                        if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                        {
+                            flags.Add(" -fuse-ld=lld-link"); // use the llvm lld linker
+                            flags.Add(" -nostartfiles"); // Do not use the standard system startup files when linking
+                            flags.Add(" -nostdlib"); // Do not use the standard system startup files or libraries when linking
+                            flags.Add($" -o {outputPath}"); // Output file
+                            if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
+                            {
+                                flags.Add(" -shared");
+                            }
+                            if (context.Configuration.NinjaGenerateCodeCoverage)
+                            {
+                                flags.Add("-fprofile-instr-generate");
+                            }
+                            if (context.Configuration.NinjaEnableAddressSanitizer)
+                            {
+                                flags.Add("-fsanitize=address");
+                            }
+                            if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
+                            {
+                                flags.Add("-fsanitize=undefined");
+                            }
+                            if (context.Configuration.NinjaEnableFuzzyTesting)
+                            {
+                                flags.Add("-fsanitize=fuzzer");
+                            }
+                        }
+                        else
+                        {
+                            flags.Add(" qc");
+                            flags.Add($" {outputPath}"); // Output file
+                        }
+                        break;
+                    case Compiler.GCC:
+                        //flags += " -fuse-ld=lld"; // use the llvm lld linker
+                        //flags.Add(" -nostdlib"); // Do not use the standard system startup files or libraries when linking
+                        if (context.Configuration.Output != Project.Configuration.OutputType.Exe)
+                        {
+                            flags.Add($"qc {outputPath}"); // Output file
+                        }
+                        else
+                        {
+                            flags.Add($"-o {outputPath}"); // Output file
+                        }
+                        if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
+                        {
+                            flags.Add(" -shared");
+                        }
+                        break;
+                    default:
+                        throw new Error("Unknown Compiler used for implicit linker flags");
+                }
 
-                return buildStatement;
+                return flags;
+            }
+
+            private Strings GetImplicitLinkPaths(GenerationContext context)
+            {
+                Strings linkPath = new Strings();
+
+                if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+
+                    switch (context.Configuration.Target.GetFragment<Compiler>())
+                    {
+                        case Compiler.MSVC:
+                            linkPath.Add("D:/Tools/MSVC/install/14.29.30133/lib/x64");
+                            linkPath.Add("D:/Tools/MSVC/install/14.29.30133/atlmfc/lib/x64");
+                            linkPath.Add("D:/Tools/Windows SDK/10.0.19041.0/lib/ucrt/x64");
+                            linkPath.Add("D:/Tools/Windows SDK/10.0.19041.0/lib/um/x64");
+                            break;
+                        case Compiler.Clang:
+                            break;
+                        case Compiler.GCC:
+                            break;
+                    }
+                }
+                return linkPath;
+            }
+
+            private Strings GetImplicitLinkLibraries(GenerationContext context)
+            {
+                Strings linkLibraries = new Strings();
+
+                if (context.Configuration.Output == Project.Configuration.OutputType.Lib)
+                    return linkLibraries;
+
+                switch (context.Configuration.Target.GetFragment<Compiler>())
+                {
+                    case Compiler.MSVC:
+                        linkLibraries.Add("kernel32.lib");
+                        linkLibraries.Add("user32.lib");
+                        linkLibraries.Add("gdi32.lib");
+                        linkLibraries.Add("winspool.lib");
+                        linkLibraries.Add("shell32.lib");
+                        linkLibraries.Add("ole32.lib");
+                        linkLibraries.Add("oleaut32.lib");
+                        linkLibraries.Add("uuid.lib");
+                        linkLibraries.Add("comdlg32.lib");
+                        linkLibraries.Add("advapi32.lib");
+                        linkLibraries.Add("oldnames.lib");
+                        break;
+                    case Compiler.Clang:
+                        linkLibraries.Add("kernel32");
+                        linkLibraries.Add("user32");
+                        linkLibraries.Add("gdi32");
+                        linkLibraries.Add("winspool");
+                        linkLibraries.Add("shell32");
+                        linkLibraries.Add("ole32");
+                        linkLibraries.Add("oleaut32");
+                        linkLibraries.Add("uuid");
+                        linkLibraries.Add("comdlg32");
+                        linkLibraries.Add("advapi32");
+                        linkLibraries.Add("oldnames");
+                        linkLibraries.Add("libcmt.lib");
+                        break;
+                    case Compiler.GCC:
+                        //linkLibraries.Add("kernel32");
+                        //linkLibraries.Add("user32");
+                        //linkLibraries.Add("gdi32");
+                        //linkLibraries.Add("winspool");
+                        //linkLibraries.Add("shell32");
+                        //linkLibraries.Add("ole32");
+                        //linkLibraries.Add("oleaut32");
+                        //linkLibraries.Add("uuid");
+                        //linkLibraries.Add("comdlg32");
+                        //linkLibraries.Add("advapi32");
+                        //linkLibraries.Add("oldnames");
+                        break;
+                }
+
+                return linkLibraries;
+            }
+
+            private Strings GetLinkerPaths(GenerationContext context)
+            {
+                return new Strings(context.Configuration.LibraryPaths);
+            }
+            private Strings GetLinkLibraries(GenerationContext context)
+            {
+                return new Strings(context.Configuration.LibraryFiles);
+            }
+
+            private Strings GetLinkerFlags(GenerationContext context)
+            {
+                Strings flags = new Strings(context.LinkerCommandLineOptions.Values);
+
+                // If we're making an archive, not all linker flags are supported
+                switch (context.Compiler)
+                {
+                    case Compiler.MSVC:
+                        return FilterMsvcLinkerFlags(flags, context);
+                    case Compiler.Clang:
+                        return FilterClangLinkerFlags(flags, context);
+                    case Compiler.GCC:
+                        return FilterGccLinkerFlags(flags, context);
+                    default:
+                        throw new Error($"Not linker flag filtering implemented for compiler {context.Compiler}");
+                }
+            }
+
+            private Strings FilterMsvcLinkerFlags(Strings flags, GenerationContext context)
+            {
+                switch (context.Configuration.Output)
+                {
+                    case Project.Configuration.OutputType.Exe:
+                        break;
+                    case Project.Configuration.OutputType.Lib:
+                        RemoveIfContains(flags, "/INCREMENTAL");
+                        RemoveIfContains(flags, "/DYNAMICBASE");
+                        RemoveIfContains(flags, "/DEBUG");
+                        RemoveIfContains(flags, "/PDB");
+                        RemoveIfContains(flags, "/LARGEADDRESSAWARE");
+                        RemoveIfContains(flags, "/OPT:REF");
+                        RemoveIfContains(flags, "/OPT:ICF");
+                        RemoveIfContains(flags, "/OPT:NOREF");
+                        RemoveIfContains(flags, "/OPT:NOICF");
+                        RemoveIfContains(flags, "/FUNCTIONPADMIN");
+                        break;
+                    case Project.Configuration.OutputType.Dll:
+                    default:
+                        break;
+                }
+
+                return flags;
+            }
+            private Strings FilterClangLinkerFlags(Strings flags, GenerationContext context)
+            {
+                switch (context.Configuration.Output)
+                {
+                    case Project.Configuration.OutputType.Exe:
+                        break;
+                    case Project.Configuration.OutputType.Lib:
+                        break;
+                    case Project.Configuration.OutputType.Dll:
+                        break;
+                    default:
+                        break;
+                }
+
+                return flags;
+            }
+            private Strings FilterGccLinkerFlags(Strings flags, GenerationContext context)
+            {
+                switch (context.Configuration.Output)
+                {
+                    case Project.Configuration.OutputType.Exe:
+                        break;
+                    case Project.Configuration.OutputType.Lib:
+                        break;
+                    case Project.Configuration.OutputType.Dll:
+                        break;
+                    default:
+                        break;
+                }
+
+                return flags;
+            }
+            private Strings ConvertLibraryDependencyFiles(GenerationContext context)
+            {
+                Strings result = new Strings();
+                foreach (var libFile in context.Configuration.DependenciesLibraryFiles)
+                {
+                    if (context.Configuration.DependenciesOtherLibraryFiles.Contains(libFile))
+                    {
+                        result.Add(libFile);
+                        continue;
+                    }
+
+                    string stem = Path.GetFileNameWithoutExtension(libFile);
+                    string extension = Path.GetExtension(libFile);
+
+                    string fullFileName = $"{stem}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}{extension}";
+                    result.Add(fullFileName);
+                }
+                return result;
+            }
+
+            private string GetPreBuildCommands(GenerationContext context)
+            {
+                string preBuildCommand = "";
+                string suffix = " && ";
+
+                foreach (var command in context.Configuration.EventPreBuild)
+                {
+                    preBuildCommand += command;
+                    preBuildCommand += suffix;
+                }
+
+                // remove trailing && if possible
+                if (preBuildCommand.EndsWith(suffix))
+                {
+                    preBuildCommand = preBuildCommand.Substring(0, preBuildCommand.Length - suffix.Length);
+                }
+
+                return preBuildCommand;
+            }
+
+            private string GetPostBuildCommands(GenerationContext context)
+            {
+                string postBuildCommand = "";
+                string suffix = " && ";
+
+                foreach (var command in context.Configuration.EventPostBuild)
+                {
+                    postBuildCommand += command;
+                    postBuildCommand += suffix;
+                }
+
+                // remove trailing && if possible
+                if (postBuildCommand.EndsWith(suffix))
+                {
+                    postBuildCommand = postBuildCommand.Substring(0, postBuildCommand.Length - suffix.Length);
+                }
+
+                return postBuildCommand;
+            }
+
+            private void RemoveIfContains(Strings flags, string value)
+            {
+                flags.RemoveAll(x => x.StartsWith(value));
+            }
+        }
+
+        public class ProjectFile
+        {
+            // Custom converter that we use to write the configurations
+            public class ConfigConverter : JsonConverter<Dictionary<Compiler, CompilerConfiguration>>
+            {
+                public override void Write(Utf8JsonWriter writer, Dictionary<Compiler, CompilerConfiguration> value, JsonSerializerOptions options)
+                {
+                    // Configs are structured per compiler, per config
+                    foreach (var kvp in value)
+                    {
+                        Compiler compiler = kvp.Key;
+                        WriteCompilerConfigs(writer, options, compiler, kvp.Value);
+                    }
+                }
+
+                public override Dictionary<Compiler, CompilerConfiguration> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+                {
+                    // Implement the Read method if needed
+                    throw new NotImplementedException();
+                }
+
+                private void WriteCompilerConfigs(Utf8JsonWriter writer, JsonSerializerOptions options, Compiler compiler, CompilerConfiguration config)
+                {
+                    writer.WriteStartObject(); // Write the opening brace
+                    writer.WritePropertyName(compiler.ToString().ToLower()); // write compiler name
+
+                    writer.WriteStartObject();  // Write the opening brace
+                    foreach (var kvp2 in config.configs)
+                    {
+                        writer.WritePropertyName(kvp2.Key); // write config name
+                        JsonSerializer.Serialize(writer, kvp2.Value, options); // write config settings
+                    }
+                    writer.WriteEndObject(); // Write the closing brace
+
+                    writer.WriteEndObject(); // Write the closing brace
+                }
+            }
+
+            public class ProjectFileConfig
+            {
+                public string ninja_file { get; set; }
+                public List<string> dependencies { get; set; }
+
+                public ProjectFileConfig(Compiler compiler, Project.Configuration config)
+                {
+                    ninja_file = GetPerConfigFilePath(config, compiler);
+                    dependencies = GetBuildDependencies(config);
+                }
+            }
+
+            public class CompilerConfiguration
+            {
+                public Dictionary<string, ProjectFileConfig> configs { get; set; }
+
+                private Compiler CompilerName;
+
+                public CompilerConfiguration(Compiler compilerName)
+                {
+                    CompilerName = compilerName;
+                    configs = new Dictionary<string, ProjectFileConfig>();
+                }
+
+                public void Add(Project.Configuration config)
+                {
+                    configs.Add(config.Target.ProjectConfigurationName.ToLower(), new ProjectFileConfig(CompilerName, config));
+                }
+            }
+
+            public string name { get; set; }
+
+            [JsonConverter(typeof(ConfigConverter))]
+            public Dictionary<Compiler, CompilerConfiguration> configs { get; set; }
+            
+            public ProjectFile(string projectName, List<Project.Configuration> configurations)
+            {
+                name = projectName;
+                configs = new Dictionary<Compiler, CompilerConfiguration>();
+
+                // Loop over all the configs of this project and link compiler with configs
+                foreach (var config in configurations)
+                {
+                    Compiler Compiler = config.Target.GetFragment<Compiler>();
+                    if (configs.ContainsKey(Compiler) == false)
+                    {
+                        configs.Add(Compiler, new CompilerConfiguration(Compiler));
+                    }
+
+                    configs[Compiler].Add(config);
+                }
             }
         }
 
         private static readonly string NinjaExtension = ".ninja";
-        private static readonly string NoDepsExtension = ".no_deps";
         private static readonly string ProjectExtension = ".nproj";
 
+        // Take in a list of flags and merge them into 1 string
         private static string MergeMultipleFlagsToString(Strings options, bool addQuotes = false, string perOptionPrefix = "")
         {
             string result = "";
@@ -339,6 +827,7 @@ namespace Sharpmake.Generators.Generic
             }
             return result;
         }
+        // Take in a list of flags and merge them into 1 string
         private static string MergeMultipleFlagsToString(OrderableStrings options, bool addQuotes = false, string perOptionPrefix = "")
         {
             string result = "";
@@ -363,32 +852,10 @@ namespace Sharpmake.Generators.Generic
             }
             return result;
         }
-        private static string GenerateOutputPath(string dependencyDir, string dependencyFileName, string configName, string compilerName)
-        {
-            string dependencyStem = Path.GetFileNameWithoutExtension(dependencyFileName);
-            string dependencyExtension = Path.GetExtension(dependencyFileName);
-            string fullDependencyFilename = UniqueOutputFilename(dependencyStem, configName, compilerName, dependencyExtension);
-            return Path.Combine(dependencyDir, fullDependencyFilename);
-        }
 
-        private bool ShouldGenerateVSNinjaFiles(Project project)
-        {
-            foreach (Project.Configuration conf in project.Configurations)
-            {
-                if (ExtensionMethods.IsVisualStudio(conf.Compiler))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-
-        // A ninja file is always accompanied by a dependency and a no-dependency file.
-        // This is because Visual Studio (and I'm sure other IDEs) handle the dependency chain for us
-        // So we need to be able to provide it with a file that doesn't build the dependencies for us
-        // But that still relinks our project if those dependencies have changed.
+        // This is the main generation function for ninja project files
+        // First we generate ninja files per configuartion
+        // Later we create the project files which will link to these per config ninja files
         public void Generate(
         Builder builder,
         Project project,
@@ -397,8 +864,7 @@ namespace Sharpmake.Generators.Generic
         List<string> generatedFiles,
         List<string> skipFiles)
         {
-            bool shouldGenerateNinjaFilesForVS = ShouldGenerateVSNinjaFiles(project);
-            // The first pass writes ninja files per configuration
+            // Loop over each configuration and generate a ninja file for each one of them
             foreach (var config in configurations)
             {
                 GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
@@ -409,18 +875,23 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 Strings filesToCompile = GetFilesToCompile(project, config);
-                WritePerConfigFile(context, filesToCompile, generatedFiles, skipFiles, shouldGenerateNinjaFilesForVS: false);
 
-                if (shouldGenerateNinjaFilesForVS)
+                // If we support unity files, we need to update the files we use for compilation
+                // to use the unity files instead and not the actual source files of the project
+                if (config.Options.Contains(Options.Vc.Compiler.JumboBuild.Enable))
                 {
-                    WritePerConfigFile(context, filesToCompile, generatedFiles, skipFiles, shouldGenerateNinjaFilesForVS: true);
+                    filesToCompile = GenerateUnityFiles(config, filesToCompile);
                 }
+
+                // Generate the per config ninja file
+                WritePerConfigFile(context, filesToCompile, generatedFiles, skipFiles);
             }
 
-            // the second pass uses these files to create project file where the files can be build
-            WriteProjectFile(builder, projectFilePath, project, configurations, generatedFiles, skipFiles, shouldGenerateNinjaFilesForVS);
+            // Generate the ninja project file which links all the ninja files together
+            WriteProjectFile(builder, project, configurations, generatedFiles, skipFiles);
         }
 
+        // This is the main generation function for ninja solution files
         public void Generate(
             Builder builder,
             Solution solution,
@@ -478,98 +949,42 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private static string GetNinjaTouchFileDependencies(GenerationContext context)
+        private Strings GenerateUnityFiles(Project.Configuration config, Strings filesToCompile)
         {
-            string result = "";
-            string prefix = " ";
+            return filesToCompile;
+            // Unity files are gnerated
+            //Strings result = new Strings();
 
-            if (context.Configuration.ResolvedDependencies.Count() > 0)
-            {
-                result += prefix;
-            }
-
-            for (int i = 0; i < context.Configuration.DependenciesBuiltTargetsLibraryFiles.Count; ++i)
-            {
-                string dependencyFilename = context.Configuration.DependenciesBuiltTargetsLibraryFiles[i];
-                string dependencyDir = context.Configuration.DependenciesBuiltTargetsLibraryPaths[i];
-                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString());
-                string ninjaFullPath = CreateNinjaFilePath(fullPath);
-
-                result += ninjaFullPath;
-                result += " ";
-            }
-
-            return result;
+            //FileStatus status = repo.RetrieveStatus(fileToCompile);
+            //bool is_modified = (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
+            //if (!is_modified)
+            //{
+            //    context.UnityFileGenerator.AddFile(fileToCompile);
+            //}
+            //else
+            //{
+            //    statements.Add(GenerateCompileStatement(objPath, fileToCompile, ninjaFilePath, context));
+            //}
 
 
-
+            //return filesToCompile;
         }
 
-        private void WriteProjectFile(Builder builder, string projectFilePath, Project project, List<Project.Configuration> configurations, List<string> generatedFiles, List<string> skipFiles, bool shouldGenerateNinjaFilesForVS)
+        // Write the ninja project file which links
+        // all the ninja files generated for this project together
+        private void WriteProjectFile(Builder builder, Project project, List<Project.Configuration> configurations, List<string> generatedFiles, List<string> skipFiles)
         {
-            string projectName = project.Name;
-            Dictionary<Compiler, List<Project.Configuration>> configPerCompiler = new Dictionary<Compiler, List<Project.Configuration>>();
-
-            foreach (var config in configurations)
+            ProjectFile projectFile = new ProjectFile(project.Name, configurations);
+            var options = new JsonSerializerOptions
             {
-                GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
-                if (configPerCompiler.ContainsKey(context.Compiler) == false)
-                {
-                    configPerCompiler.Add(context.Compiler, new List<Project.Configuration>());
-                }
+                WriteIndented = true, // Makes it a bit more human friendly
+            };
 
-                configPerCompiler[context.Compiler].Add(context.Configuration);
-            }
-
-            StringBuilder sb = new StringBuilder();
-            string quote = "\"";
-
-            string trailingCharacters = ",\n";
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                trailingCharacters = ",\r\n";
-            }
-
-            sb.AppendLine($"{{");
-            sb.AppendLine($"\t{quote}{projectName.ToLower()}{quote}:");
-            sb.AppendLine($"\t{{");
-
-            foreach (var compiler in configPerCompiler)
-            {
-                sb.AppendLine($"\t\t{quote}{compiler.Key.ToString().ToLower()}{quote}:");
-                sb.AppendLine($"\t\t{{");
-                foreach (var config in compiler.Value)
-                {
-                    GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
-                    sb.AppendLine($"\t\t\t{quote}{config.Target.ProjectConfigurationName.ToLower()}{quote}:");
-                    sb.AppendLine($"\t\t\t{{");
-                    string ninjaFilePath = GetPerConfigFilePathWithDeps(context.Configuration, context.Compiler);
-                    sb.AppendLine($"\t\t\t\t{quote}ninja_file{quote} : {quote}{ninjaFilePath}{quote},");
-                    if (shouldGenerateNinjaFilesForVS)
-                    {
-                        string ninjaFilePathNoDeps = GetPerConfigFilePathNoDeps(context.Configuration, context.Compiler);
-                        sb.AppendLine($"\t\t\t\t{quote}ninja_file_no_deps{quote} : {quote}{ninjaFilePathNoDeps}{quote},");
-                    }
-                    sb.AppendLine($"\t\t\t\t{quote}dependencies{quote} : [");
-                    string dependencies = GetBuildDependencies(context, 4);
-                    sb.AppendLine($"{dependencies}");
-                    sb.AppendLine($"\t\t\t\t]");
-                    sb.AppendLine($"\t\t\t}},");
-                }
-                sb.Remove(sb.Length - trailingCharacters.Length, 1); // remove trailing comma
-                sb.AppendLine($"\t\t}},");
-            }
-            sb.Remove(sb.Length - trailingCharacters.Length, 1); // remove trailing comma
-
-            sb.AppendLine($"\t}}");
-            sb.AppendLine($"}}");
+            string jsonBlob = JsonSerializer.Serialize(projectFile, options);
+            jsonBlob = jsonBlob.ToLower();
 
             var fileGenerator = new FileGenerator();
-
-            string content = sb.ToString();
-            content = content.Replace("\\", "\\\\");
-            fileGenerator.WriteLine(content);
-
+            fileGenerator.WriteVerbatim(jsonBlob);
             string fullProjectPath = FullProjectPath(project);
 
             if (SaveFileGeneratorToDisk(fileGenerator, builder, project, $"{fullProjectPath}"))
@@ -582,37 +997,29 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private string GetBuildDependencies(GenerationContext context, int indentLevel = 0)
+        // Get the build dependencies (dependencies that need to be build before this config of this project gets build)
+        // The build dependencies are listed in json format
+        private static List<string> GetBuildDependencies(Project.Configuration configuration)
         {
-            string result = "";
+            List<string> buildDependencies = new List<string>();
 
             // A static lib doesn't have any build dependencies
-            if (context.Configuration.Output == Project.Configuration.OutputType.Lib)
+            if (configuration.Output == Project.Configuration.OutputType.Lib)
             {
-                return result;
+                return buildDependencies;
             }
 
-            string suffix = ",\n";
-            string indent = indentLevel > 0 ? Enumerable.Repeat("\t", (int)indentLevel).Aggregate((sum, next) => sum + next) : "";
-
-            foreach (var config in context.Configuration.ResolvedDependencies)
+            foreach (var config in configuration.ResolvedDependencies)
             {
                 string projectPath = FullProjectPath(config.Project);
-
-                result += indent;
-                result += $"\"{projectPath}\"";
-                result += suffix;
+                buildDependencies.Add(projectPath);
             }
 
-            if (result.EndsWith(suffix))
-            {
-                result = result.Substring(0, result.Length - suffix.Length);
-            }
-
-            return result;
+            return buildDependencies;
         }
 
-        private string FullProjectPath(Project project)
+        // Given a project, it'll find the project path where it should be generated
+        private static string FullProjectPath(Project project)
         {
             foreach (var config in project.Configurations)
             {
@@ -626,15 +1033,18 @@ namespace Sharpmake.Generators.Generic
             throw new Error("Failed to find project path");
         }
 
-        private void WritePerConfigFile(GenerationContext context, Strings filesToCompile, List<string> generatedFiles, List<string> skipFiles, bool shouldGenerateNinjaFilesForVS)
+        // Write the ninja file that's unique for this configuration
+        private void WritePerConfigFile(GenerationContext context, Strings filesToCompile, List<string> generatedFiles, List<string> skipFiles)
         {
-            Strings ninjaObjFilePaths = GetNinjaObjPaths(context);
+            // the obj file paths act as output for the compiler statements
+            // but they're input for the linker statements
+            Strings objFilePaths = GetObjPaths(context, filesToCompile);
 
             ResolvePdbPaths(context);
             GenerateConfOptions(context);
 
-            List<CompileStatement> compileStatements = GenerateCompileStatements(context, filesToCompile, ninjaObjFilePaths);
-            List<LinkStatement> linkStatements = GenerateLinking(context, GetObjPaths(context), ninjaObjFilePaths, shouldGenerateNinjaFilesForVS);
+            List<CompileStatement> compileStatements = GenerateCompileStatements(context, filesToCompile, objFilePaths);
+            List<LinkStatement> linkStatements = GenerateLinkingStatements(context, objFilePaths);
 
             var fileGenerator = new FileGenerator();
 
@@ -643,27 +1053,19 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine("");
             fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.IntermediatePath, ".ninja")}");
 
-            GenerateRules(fileGenerator, context, shouldGenerateNinjaFilesForVS);
+            GenerateRules(fileGenerator, context);
 
             fileGenerator.RemoveTaggedLines();
 
+            fileGenerator.WriteLine("# Compile statements");
             foreach (var compileStatement in compileStatements)
             {
                 fileGenerator.WriteLine(compileStatement.ToString());
             }
 
-            if (shouldGenerateNinjaFilesForVS && context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-                List<TouchStatement> touchStatements = GenerateTouchStatements(context);
-
-                foreach (var touchStatement in touchStatements)
-                {
-                    fileGenerator.WriteLine(touchStatement.ToString());
-                }
-            }
-
             fileGenerator.WriteLine("");
 
+            fileGenerator.WriteLine("# Link statements");
             foreach (var linkStatement in linkStatements)
             {
                 fileGenerator.WriteLine(linkStatement.ToString());
@@ -671,9 +1073,9 @@ namespace Sharpmake.Generators.Generic
 
             GenerateProjectBuilds(fileGenerator, context);
 
-            string filePath = GetPerConfigFilePath(context.Configuration, context.Compiler, shouldGenerateNinjaFilesForVS);
+            string filePath = GetPerConfigFilePath(context.Configuration, context.Compiler);
 
-            if (SaveFileGeneratorToDisk(fileGenerator, context, filePath))
+            if (SaveFileGeneratorToDisk(fileGenerator, context.Builder, context.Project, filePath))
             {
                 generatedFiles.Add(filePath);
             }
@@ -683,33 +1085,20 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private string GetPerConfigFileName(Project.Configuration config, Compiler compiler)
+        // Get the filename for a ninja file that's unique for its configuration
+        private static string GetPerConfigFileName(Project.Configuration config, Compiler compiler)
         {
             return $"{config.Project.Name}.{config.Target.ProjectConfigurationName}.{compiler}{NinjaExtension}";
         }
 
-        private string GetPerConfigFilePath(Project.Configuration config, Compiler compiler, bool shouldGenerateNinjaFilesForVS)
-        {
-            if (shouldGenerateNinjaFilesForVS)
-            {
-                return GetPerConfigFilePathNoDeps(config, compiler);
-            }
-            else
-            {
-                return GetPerConfigFilePathWithDeps(config, compiler);
-            }
-        }
-
-        private string GetPerConfigFilePathWithDeps(Project.Configuration config, Compiler compiler)
+        // Get the full filepath of a ninja file that's unique for its configuration
+        private static string GetPerConfigFilePath(Project.Configuration config, Compiler compiler)
         {
             return Path.Combine(config.ProjectPath, "ninja", GetPerConfigFileName(config, compiler));
         }
 
-        private string GetPerConfigFilePathNoDeps(Project.Configuration config, Compiler compiler)
-        {
-            return Path.Combine(config.ProjectPath, "ninja", $"{GetPerConfigFileName(config, compiler)}{NoDepsExtension}");
-        }
-
+        // Write the value out if its not empty
+        // Don't write anything if it is empty
         private static void WriteIfNotEmpty(FileGenerator fileGenerator, string key, string value)
         {
             if (!string.IsNullOrEmpty(value))
@@ -717,6 +1106,9 @@ namespace Sharpmake.Generators.Generic
                 fileGenerator.WriteLine($"{key} = {value}");
             }
         }
+
+        // Write the value out if its not empty
+        // Write the "or" value if it is empty
         private static void WriteIfNotEmptyOr(FileGenerator fileGenerator, string key, string value, string orValue)
         {
             if (!string.IsNullOrEmpty(value))
@@ -729,40 +1121,29 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
+        // The filename of the  
         private static string UniqueOutputFilename(string targetFileFullName, string configName, string compiler, string targetFileFullExtension)
         {
             return $"{targetFileFullName}_{configName}_{compiler}{targetFileFullExtension}";
 
         }
 
-        private static string FullOutputPath(GenerationContext context)
+        // The full target filepath for the context
+        private static string FullTargetPath(GenerationContext context)
         {
             string fullFileName = UniqueOutputFilename(context.Configuration.TargetFileFullName, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString(), context.Configuration.TargetFileFullExtension);
             return Path.Combine(context.Configuration.TargetPath, fullFileName);
         }
 
-        private static string FullNinjaOutputPath(GenerationContext context)
+        // The full target filepath in ninja format for the context
+        private static string FullNinjaTargetPath(GenerationContext context)
         {
-            return CreateNinjaFilePath(FullOutputPath(context));
+            return ConvertToNinjaFilePath(FullTargetPath(context));
         }
 
-        private static string CreateResponseFile(GenerationContext context, IsLinkerResponse.Value isLinkerRespponse, Strings files)
-        {
-            string fullFileName = isLinkerRespponse == IsLinkerResponse.Value.Yes
-                ? $"{context.Configuration.TargetFileFullName}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}_linker_response.txt"
-                : $"{context.Configuration.TargetFileFullName}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}_compiler_response.txt";
-            string responseFilePath = Path.Combine(context.Configuration.TargetPath, fullFileName);
-
-            StringBuilder sb = new StringBuilder();
-            foreach (string file in files)
-            {
-                sb.Append($"{file.Replace('\\', '/')} ");
-            }
-
-            File.WriteAllText(responseFilePath, sb.ToString());
-            return responseFilePath;
-        }
-
+        // Change relative pdb path setting to disable
+        // Set the compiler and linker pdb suffixes
+        // Create the PDB folders if necessary
         private void ResolvePdbPaths(GenerationContext context)
         {
             // Relative pdb filepaths is not supported for ninja generation
@@ -780,11 +1161,7 @@ namespace Sharpmake.Generators.Generic
             CreatePdbPath(context);
         }
 
-        private bool SaveFileGeneratorToDisk(FileGenerator fileGenerator, GenerationContext context, string filePath)
-        {
-            return SaveFileGeneratorToDisk(fileGenerator, context.Builder, context.Project, filePath);
-        }
-
+        // Write content of fileGenerator to disk
         private bool SaveFileGeneratorToDisk(FileGenerator fileGenerator, Builder builder, Project project, string filePath)
         {
             MemoryStream memoryStream = fileGenerator.ToMemoryStream();
@@ -792,10 +1169,12 @@ namespace Sharpmake.Generators.Generic
             return builder.Context.WriteGeneratedFile(project.GetType(), projectFileInfo, memoryStream);
         }
 
+        // Get the source files that are required to compile the project in the specified configuration
         private Strings GetFilesToCompile(Project project, Project.Configuration configuration)
         {
             Strings filesToCompile = new Strings();
 
+            // Loop over all the source files and exclude those we don't want to build
             foreach (var sourceFile in project.ResolvedSourceFiles)
             {
                 string extension = Path.GetExtension(sourceFile);
@@ -808,42 +1187,25 @@ namespace Sharpmake.Generators.Generic
             return filesToCompile;
         }
 
-        Strings GetObjPaths(GenerationContext context)
+        // Get all the obj paths for the files to compile
+        Strings GetObjPaths(GenerationContext context, Strings filesToCompile)
         {
             Strings objFilePaths = new Strings();
 
-            foreach (var sourceFile in context.Project.ResolvedSourceFiles)
+            foreach (var sourceFile in filesToCompile)
             {
-                string extension = Path.GetExtension(sourceFile);
-                if (context.Project.SourceFilesCompileExtensions.Contains(extension) && !context.Configuration.ResolvedSourceFilesBuildExclude.Contains(sourceFile))
-                {
-                    string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
-                    string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
-                    string fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
-
-                    string outputExtension = context.Configuration.Target.GetFragment<Compiler>() == Compiler.MSVC ? ".obj" : ".o";
-
-                    string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileDir, fileStem)}{outputExtension}";
-                    objFilePaths.Add(objPath);
-                }
+                string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
+                string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
+                string fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
+                string outputExtension = context.Configuration.Target.GetFragment<Compiler>() == Compiler.MSVC ? ".obj" : ".o";
+                string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileDir, fileStem)}{outputExtension}";
+                objFilePaths.Add(objPath);
             }
 
             return objFilePaths;
         }
 
-        Strings GetNinjaObjPaths(GenerationContext context)
-        {
-            Strings objFilePaths = GetObjPaths(context);
-
-            Strings res = new Strings();
-            foreach (string file in objFilePaths)
-            {
-                res.Add(CreateNinjaFilePath(file));
-            }
-
-            return res;
-        }
-
+        // Create the pdb path for the context if needed
         private void CreatePdbPath(GenerationContext context)
         {
             if (!Directory.Exists(Path.GetDirectoryName(context.Configuration.LinkerPdbFilePath)))
@@ -852,22 +1214,29 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
+        // Get the path of the C++ Compiler for the context
         private string GetCppCompilerPath(GenerationContext context)
         {
             return KitsRootPaths.GetCompilerSettings(context.Compiler).BinPathForCppCompiler;
         }
 
+        // Get the path of the C Compiler for the context
         private string GetCCompilerPath(GenerationContext context)
         {
             return KitsRootPaths.GetCompilerSettings(context.Compiler).BinPathForCCompiler;
         }
 
+        // Static libs are best totally removed before they get regenerated
+        // This avoids symbol clashes
+        // As static libs are just compressed obj files put togehter (and no linking gets done)
+        // To make it easy for the archiver, we just generate them from scratch every time
         private string DeleteOutputIfExists(GenerationContext context)
         {
-            string targetPath = FullOutputPath(context);
+            string targetPath = FullTargetPath(context);
             return $"cmd.exe /C if exist \"{targetPath}\" del \"{targetPath}\"";
         }
 
+        // Get the of the Linker for the intermediate files generated for the context
         private string GetLinkerPath(GenerationContext context)
         {
             return context.Configuration.Output == Project.Configuration.OutputType.Lib
@@ -875,6 +1244,8 @@ namespace Sharpmake.Generators.Generic
                 : KitsRootPaths.GetCompilerSettings(context.Compiler).LinkerPath;
         }
 
+        // Write out the header to the file generator.
+        // This header is shared by all ninja files generated through Sharpmake
         private void GenerateHeader(FileGenerator fileGenerator)
         {
             fileGenerator.WriteLine($"# !! Sharpmake generated file !!");
@@ -885,7 +1256,9 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"");
         }
 
-        private void GenerateRules(FileGenerator fileGenerator, GenerationContext context, bool shouldGenerateNinjaFilesForVS)
+        // Generate the rules that specify what we support from a ninja file
+        // This is often just the compile, link, clean and compdb generation rule
+        private void GenerateRules(FileGenerator fileGenerator, GenerationContext context)
         {
             // Compilation
             string depsValue = "gcc";
@@ -914,8 +1287,9 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"{Template.CommandBegin}\"{GetCCompilerPath(context)}\" ${Template.BuildStatement.Defines(context)} ${Template.BuildStatement.SystemIncludes(context)} ${Template.BuildStatement.Includes(context)} ${Template.BuildStatement.CompilerFlags(context)} ${Template.BuildStatement.CompilerImplicitFlags(context)} {Template.Input}");
             fileGenerator.WriteLine($"{Template.DescriptionBegin} Building C object $out");
 
-            // Linking
+            fileGenerator.WriteLine($"");
 
+            // Linking
             string description = context.Configuration.Output == Project.Configuration.OutputType.Exe
                 ? "Linking C++ executable"
                 : "Creating C++ archive";
@@ -938,30 +1312,18 @@ namespace Sharpmake.Generators.Generic
             // Cleaning
             fileGenerator.WriteLine($"# Rule to clean all built files");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.Clean(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler, shouldGenerateNinjaFilesForVS)} -t clean");
+            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t clean");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}Cleaning all build files");
             fileGenerator.WriteLine($"");
 
             // Compiler DB
             fileGenerator.WriteLine($"# Rule to generate compiler db");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.CompilerDB(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler, shouldGenerateNinjaFilesForVS)} -t compdb {Template.RuleStatement.CompileCppFile(context)} {Template.RuleStatement.CompileCFile(context)}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t compdb {Template.RuleStatement.CompileCppFile(context)} {Template.RuleStatement.CompileCFile(context)}");
             fileGenerator.WriteLine($"");
-
-            // Rule to check if we need if our dependency have changed
-            if (shouldGenerateNinjaFilesForVS && context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-                // Dependency checking
-                fileGenerator.WriteLine($"# Rule to check if a file has changed since the last time this rule ran, without actually generating the file ourselves");
-                fileGenerator.WriteLine($"# We need this when executing Ninja through Visual Studio, as Visual Studio would generate the dependencies for us");
-                fileGenerator.WriteLine($"# This rule works because the timestamp comparison with the file vs when the rule was last run");
-                fileGenerator.WriteLine($"# Will result in a relink of this project, if the dependency has changed");
-                fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.TouchFile(context)}");
-                fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C cd .");
-                fileGenerator.WriteLine($"");
-            }
         }
 
+        // Generate a compile statement for each source file we have to compile
         private List<CompileStatement> GenerateCompileStatements(GenerationContext context, Strings filesToCompile, Strings objPaths)
         {
             List<CompileStatement> statements = new List<CompileStatement>();
@@ -970,90 +1332,37 @@ namespace Sharpmake.Generators.Generic
             {
                 string fileToCompile = filesToCompile.ElementAt(i);
                 string objPath = objPaths.ElementAt(i);
-                string ninjaFilePath = CreateNinjaFilePath(fileToCompile);
-
-                var compileStatement = new CompileStatement(objPath, fileToCompile, ninjaFilePath, context);
-                compileStatement.Defines = context.Configuration.Defines;
-                compileStatement.DepPath = objPath;
-                compileStatement.ImplicitCompilerFlags = GetImplicitCompilerFlags(context, objPath);
-                compileStatement.CompilerFlags = GetCompilerFlags(context);
-                OrderableStrings includePaths = context.Configuration.IncludePaths;
-                includePaths.AddRange(context.Configuration.IncludePrivatePaths);
-                includePaths.AddRange(context.Configuration.DependenciesIncludePaths);
-                compileStatement.Includes = includePaths;
-                OrderableStrings systemIncludePaths = context.Configuration.IncludeSystemPaths;
-                systemIncludePaths.AddRange(context.Configuration.DependenciesIncludeSystemPaths);
-                compileStatement.SystemIncludes = systemIncludePaths;
-                compileStatement.TargetFilePath = context.Configuration.LinkerPdbFilePath;
-
-                statements.Add(compileStatement);
+                statements.Add(new CompileStatement(context, fileToCompile, objPath));
             }
 
             return statements;
         }
 
-        private List<LinkStatement> GenerateLinking(GenerationContext context, Strings nonNinjaobjFilePaths, Strings objFilePaths, bool shouldGenerateNinjaFilesForVS)
+        // Generate a link statement that merges all the obj files into 1 exe, lib or dll
+        private List<LinkStatement> GenerateLinkingStatements(GenerationContext context, Strings objFilePaths)
         {
             List<LinkStatement> statements = new List<LinkStatement>();
 
-            string outputPath = FullNinjaOutputPath(context);
-            string responseFilePath = CreateResponseFile(context, IsLinkerResponse.Value.Yes, nonNinjaobjFilePaths);
+            string outputPath = FullNinjaTargetPath(context);
 
-            var linkStatement = new LinkStatement(context, outputPath, shouldGenerateNinjaFilesForVS);
-
-            linkStatement.ResponseFilePath = responseFilePath;
-            linkStatement.ObjFilePaths = objFilePaths;
-            linkStatement.ImplicitLinkerFlags = GetImplicitLinkerFlags(context, outputPath);
-            linkStatement.Flags = GetLinkerFlags(context);
-            linkStatement.ImplicitLinkerPaths = GetImplicitLinkPaths(context);
-            Strings linkerPaths = GetLinkerPaths(context);
-            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-                linkerPaths.AddRange(context.Configuration.DependenciesLibraryPaths);
-            }
-            linkStatement.LinkerPaths = linkerPaths;
-            linkStatement.ImplicitLinkerLibs = GetImplicitLinkLibraries(context);
-            Strings linkerLibs = GetLinkLibraries(context);
-            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-                linkerLibs.AddRange(ConvertLibraryDependencyFiles(context));
-            }
-            linkStatement.LinkerLibs = linkerLibs;
-            linkStatement.PreBuild = GetPreBuildCommands(context);
-            linkStatement.PostBuild = GetPostBuildCommands(context);
-            linkStatement.TargetPdb = context.Configuration.LinkerPdbFilePath;
-
-            statements.Add(linkStatement);
+            statements.Add(new LinkStatement(context, outputPath, objFilePaths));
 
             return statements;
         }
 
-        private List<TouchStatement> GenerateTouchStatements(GenerationContext context)
-        {
-            List<TouchStatement> touchStatements = new List<TouchStatement>();
-            for (int i = 0; i < context.Configuration.DependenciesBuiltTargetsLibraryPaths.Count; ++i)
-            {
-                string dependencyFilename = context.Configuration.DependenciesBuiltTargetsLibraryFiles[i];
-                string dependencyDir = context.Configuration.DependenciesBuiltTargetsLibraryPaths[i];
-                string fullPath = GenerateOutputPath(dependencyDir, dependencyFilename, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString());
-                string ninjaFullPath = CreateNinjaFilePath(fullPath);
-
-                touchStatements.Add(new TouchStatement(context, ninjaFullPath));
-            }
-
-            return touchStatements;
-        }
-
+        // A phony name is just an alias for another build statement
         private static string GeneratePhonyName(Project.Configuration config, Compiler compiler)
         {
-            return $"{ config.Target.ProjectConfigurationName }_{ compiler}_{ config.TargetFileFullName}".ToLower();
+            return $"{ config.Target.ProjectConfigurationName}_{compiler}_{config.TargetFileFullName}".ToLower();
         }
 
+        // Generate the different build statements that act as the main interface
+        // These are build, clean and compdb generation
         private void GenerateProjectBuilds(FileGenerator fileGenerator, GenerationContext context)
         {
-            //build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
+            //eg. build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
             string phony_name = GeneratePhonyName(context.Configuration, context.Compiler);
-            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullNinjaOutputPath(context)}");
+            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullNinjaTargetPath(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CleanBuildStatement(context)}: {Template.RuleStatement.Clean(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CompDBBuildStatement(context)}: {Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"");
@@ -1061,7 +1370,10 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"default {phony_name}");
         }
 
-        private static string CreateNinjaFilePath(string path)
+        // Convert a filepath to a filepath to be read by ninja
+        // This simple adds '$' between a drive letter and colon
+        // eg c:\foo.txt -> C$:\foo.txt
+        private static string ConvertToNinjaFilePath(string path)
         {
             if (!Path.IsPathRooted(path))
             {
@@ -1076,400 +1388,8 @@ namespace Sharpmake.Generators.Generic
 
         }
 
-        // subtract all compiler options from the config and translate them to compiler specific flags
-        private Strings GetImplicitCompilerFlags(GenerationContext context, string ninjaObjPath)
-        {
-            Strings flags = new Strings();
-            switch (context.Configuration.Target.GetFragment<Compiler>())
-            {
-                case Compiler.MSVC:
-                    flags.Add("/showIncludes"); // used to generate header dependencies
-                    flags.Add("/nologo"); // supress copyright banner in compiler
-                    flags.Add("/TP"); // treat all files on command line as C++ files
-                    flags.Add(" /c"); // don't auto link
-                    flags.Add($" /Fo\"{ninjaObjPath}\""); // obj output path
-                    flags.Add($" /FS"); // force async pdb generation
-                    break;
-                case Compiler.Clang:
-                    flags.Add(" -MD"); // generate header dependencies
-                    flags.Add(" -MF"); // write the header dependencies to a file
-                    flags.Add($" {ninjaObjPath}.d"); // file to write header dependencies to
-                    flags.Add(" -c"); // don't auto link
-                    flags.Add($" -o\"{ninjaObjPath}\""); // obj output path
-                    if (context.Configuration.NinjaGenerateCodeCoverage)
-                    {
-                        flags.Add("-fprofile-instr-generate");
-                        flags.Add("-fcoverage-mapping");
-                    }
-                    if (context.Configuration.NinjaEnableAddressSanitizer)
-                    {
-                        flags.Add("-fsanitize=address");
-                        context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
-
-                        // disable lto to avoid asan odr issues.
-                        // can't disable them with ASAN_OPTIONS=detect_odr_violation=0 due to unknown bug
-                        // https://github.com/google/sanitizers/issues/647
-                        context.CommandLineOptions["CompilerWholeProgramOptimization"] = FileGeneratorUtilities.RemoveLineTag;
-                        context.LinkerCommandLineOptions["LinkTimeCodeGeneration"] = FileGeneratorUtilities.RemoveLineTag;
-                    }
-                    if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
-                    {
-                        flags.Add("-fsanitize=undefined");
-                        context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
-                    }
-                    if (context.Configuration.NinjaEnableFuzzyTesting)
-                    {
-                        flags.Add("-fsanitize=fuzzer");
-                        context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
-                    }
-                    break;
-                case Compiler.GCC:
-                    flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
-                    flags.Add($" -o\"{ninjaObjPath}\""); // obj output path
-                    flags.Add(" -c"); // don't auto link
-                    break;
-                default:
-                    throw new Error("Unknown Compiler used for implicit compiler flags");
-            }
-
-            if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
-            {
-                if (PlatformRegistry.Get<IPlatformDescriptor>(context.Configuration.Platform).HasSharedLibrarySupport)
-                {
-                    flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_WINDLL");
-                }
-            }
-
-            int index = context.Configuration.Options.FindIndex(x => x.GetType() == typeof(Options.Vc.Compiler.CppLanguageStandard));
-            if (index != -1)
-            {
-                object option = context.Configuration.Options[index];
-                Options.Vc.Compiler.CppLanguageStandard cppStandard = (Options.Vc.Compiler.CppLanguageStandard)option;
-
-                //switch (cppStandard)
-                //{
-                //    case Options.Vc.Compiler.CppLanguageStandard.CPP14:
-                //        flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_MSVC_LANG=201402L");
-                //        break;
-                //    case Options.Vc.Compiler.CppLanguageStandard.CPP17:
-                //        flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_MSVC_LANG=201703L");
-                //        break;
-                //    case Options.Vc.Compiler.CppLanguageStandard.CPP20:
-                //        flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_MSVC_LANG=202002L");
-                //        break;
-                //    case Options.Vc.Compiler.CppLanguageStandard.Latest:
-                //        flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_MSVC_LANG=202004L");
-                //        break;
-                //    default:
-                //        flags.Add($" {CompilerFlagLookupTable.Get(context.Compiler, CompilerFlag.Define)}_MSVC_LANG=201402L");
-                //        break;
-                //}
-            }
-
-            return flags;
-        }
-        private Strings GetImplicitLinkerFlags(GenerationContext context, string outputPath)
-        {
-            Strings flags = new Strings();
-            switch (context.Configuration.Target.GetFragment<Compiler>())
-            {
-                case Compiler.MSVC:
-                    flags.Add($" /OUT:{outputPath}"); // Output file
-                    if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
-                    {
-                        flags.Add(" /dll");
-                    }
-                    break;
-                case Compiler.Clang:
-                    if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
-                    {
-                        flags.Add(" -fuse-ld=lld-link"); // use the llvm lld linker
-                        flags.Add(" -nostartfiles"); // Do not use the standard system startup files when linking
-                        flags.Add(" -nostdlib"); // Do not use the standard system startup files or libraries when linking
-                        flags.Add($" -o {outputPath}"); // Output file
-                        if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
-                        {
-                            flags.Add(" -shared");
-                        }
-                        if (context.Configuration.NinjaGenerateCodeCoverage)
-                        {
-                            flags.Add("-fprofile-instr-generate");
-                        }
-                        if (context.Configuration.NinjaEnableAddressSanitizer)
-                        {
-                            flags.Add("-fsanitize=address");
-                        }
-                        if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
-                        {
-                            flags.Add("-fsanitize=undefined");
-                        }
-                        if (context.Configuration.NinjaEnableFuzzyTesting)
-                        {
-                            flags.Add("-fsanitize=fuzzer");
-                        }
-                    }
-                    else
-                    {
-                        flags.Add(" qc");
-                        flags.Add($" {outputPath}"); // Output file
-                    }
-                    break;
-                case Compiler.GCC:
-                    //flags += " -fuse-ld=lld"; // use the llvm lld linker
-                    //flags.Add(" -nostdlib"); // Do not use the standard system startup files or libraries when linking
-                    if (context.Configuration.Output != Project.Configuration.OutputType.Exe)
-                    {
-                        flags.Add($"qc {outputPath}"); // Output file
-                    }
-                    else
-                    {
-                        flags.Add($"-o {outputPath}"); // Output file
-                    }
-                    if (context.Configuration.Output == Project.Configuration.OutputType.Dll)
-                    {
-                        flags.Add(" -shared");
-                    }
-                    break;
-                default:
-                    throw new Error("Unknown Compiler used for implicit linker flags");
-            }
-
-            return flags;
-        }
-
-        private Strings GetImplicitLinkPaths(GenerationContext context)
-        {
-            Strings linkPath = new Strings();
-
-            if (context.Configuration.Output != Project.Configuration.OutputType.Lib)
-            {
-
-                switch (context.Configuration.Target.GetFragment<Compiler>())
-                {
-                    case Compiler.MSVC:
-                        linkPath.Add("D:/Tools/MSVC/install/14.29.30133/lib/x64");
-                        linkPath.Add("D:/Tools/MSVC/install/14.29.30133/atlmfc/lib/x64");
-                        linkPath.Add("D:/Tools/Windows SDK/10.0.19041.0/lib/ucrt/x64");
-                        linkPath.Add("D:/Tools/Windows SDK/10.0.19041.0/lib/um/x64");
-                        break;
-                    case Compiler.Clang:
-                        break;
-                    case Compiler.GCC:
-                        break;
-                }
-            }
-            return linkPath;
-        }
-
-        private Strings GetImplicitLinkLibraries(GenerationContext context)
-        {
-            Strings linkLibraries = new Strings();
-
-            if (context.Configuration.Output == Project.Configuration.OutputType.Lib)
-                return linkLibraries;
-
-            switch (context.Configuration.Target.GetFragment<Compiler>())
-            {
-                case Compiler.MSVC:
-                    linkLibraries.Add("kernel32.lib");
-                    linkLibraries.Add("user32.lib");
-                    linkLibraries.Add("gdi32.lib");
-                    linkLibraries.Add("winspool.lib");
-                    linkLibraries.Add("shell32.lib");
-                    linkLibraries.Add("ole32.lib");
-                    linkLibraries.Add("oleaut32.lib");
-                    linkLibraries.Add("uuid.lib");
-                    linkLibraries.Add("comdlg32.lib");
-                    linkLibraries.Add("advapi32.lib");
-                    linkLibraries.Add("oldnames.lib");
-                    break;
-                case Compiler.Clang:
-                    linkLibraries.Add("kernel32");
-                    linkLibraries.Add("user32");
-                    linkLibraries.Add("gdi32");
-                    linkLibraries.Add("winspool");
-                    linkLibraries.Add("shell32");
-                    linkLibraries.Add("ole32");
-                    linkLibraries.Add("oleaut32");
-                    linkLibraries.Add("uuid");
-                    linkLibraries.Add("comdlg32");
-                    linkLibraries.Add("advapi32");
-                    linkLibraries.Add("oldnames");
-                    linkLibraries.Add("libcmt.lib");
-                    break;
-                case Compiler.GCC:
-                    //linkLibraries.Add("kernel32");
-                    //linkLibraries.Add("user32");
-                    //linkLibraries.Add("gdi32");
-                    //linkLibraries.Add("winspool");
-                    //linkLibraries.Add("shell32");
-                    //linkLibraries.Add("ole32");
-                    //linkLibraries.Add("oleaut32");
-                    //linkLibraries.Add("uuid");
-                    //linkLibraries.Add("comdlg32");
-                    //linkLibraries.Add("advapi32");
-                    //linkLibraries.Add("oldnames");
-                    break;
-            }
-
-            return linkLibraries;
-        }
-
-        private Strings GetCompilerFlags(GenerationContext context)
-        {
-            return new Strings(context.CommandLineOptions.Values);
-        }
-
-        private Strings GetLinkerPaths(GenerationContext context)
-        {
-            return new Strings(context.Configuration.LibraryPaths);
-        }
-        private Strings GetLinkLibraries(GenerationContext context)
-        {
-            return new Strings(context.Configuration.LibraryFiles);
-        }
-
-        private Strings ConvertLibraryDependencyFiles(GenerationContext context)
-        {
-            Strings result = new Strings();
-            foreach (var libFile in context.Configuration.DependenciesLibraryFiles)
-            {
-                if (context.Configuration.DependenciesOtherLibraryFiles.Contains(libFile))
-                {
-                    result.Add(libFile);
-                    continue;
-                }
-
-                string stem = Path.GetFileNameWithoutExtension(libFile);
-                string extension = Path.GetExtension(libFile);
-
-                string fullFileName = $"{stem}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}{extension}";
-                result.Add(fullFileName);
-            }
-            return result;
-        }
-
-        private string GetPreBuildCommands(GenerationContext context)
-        {
-            string preBuildCommand = "";
-            string suffix = " && ";
-
-            foreach (var command in context.Configuration.EventPreBuild)
-            {
-                preBuildCommand += command;
-                preBuildCommand += suffix;
-            }
-
-            // remove trailing && if possible
-            if (preBuildCommand.EndsWith(suffix))
-            {
-                preBuildCommand = preBuildCommand.Substring(0, preBuildCommand.Length - suffix.Length);
-            }
-
-            return preBuildCommand;
-        }
-
-        private string GetPostBuildCommands(GenerationContext context)
-        {
-            string postBuildCommand = "";
-            string suffix = " && ";
-
-            foreach (var command in context.Configuration.EventPostBuild)
-            {
-                postBuildCommand += command;
-                postBuildCommand += suffix;
-            }
-
-            // remove trailing && if possible
-            if (postBuildCommand.EndsWith(suffix))
-            {
-                postBuildCommand = postBuildCommand.Substring(0, postBuildCommand.Length - suffix.Length);
-            }
-
-            return postBuildCommand;
-        }
-
-        private Strings GetLinkerFlags(GenerationContext context)
-        {
-            Strings flags = new Strings(context.LinkerCommandLineOptions.Values);
-
-            // If we're making an archive, not all linker flags are supported
-            switch (context.Compiler)
-            {
-                case Compiler.MSVC:
-                    return FilterMsvcLinkerFlags(flags, context);
-                case Compiler.Clang:
-                    return FilterClangLinkerFlags(flags, context);
-                case Compiler.GCC:
-                    return FilterGccLinkerFlags(flags, context);
-                default:
-                    throw new Error($"Not linker flag filtering implemented for compiler {context.Compiler}");
-            }
-        }
-
-        private Strings FilterMsvcLinkerFlags(Strings flags, GenerationContext context)
-        {
-            switch (context.Configuration.Output)
-            {
-                case Project.Configuration.OutputType.Exe:
-                    break;
-                case Project.Configuration.OutputType.Lib:
-                    RemoveIfContains(flags, "/INCREMENTAL");
-                    RemoveIfContains(flags, "/DYNAMICBASE");
-                    RemoveIfContains(flags, "/DEBUG");
-                    RemoveIfContains(flags, "/PDB");
-                    RemoveIfContains(flags, "/LARGEADDRESSAWARE");
-                    RemoveIfContains(flags, "/OPT:REF");
-                    RemoveIfContains(flags, "/OPT:ICF");
-                    RemoveIfContains(flags, "/OPT:NOREF");
-                    RemoveIfContains(flags, "/OPT:NOICF");
-                    RemoveIfContains(flags, "/FUNCTIONPADMIN");
-                    break;
-                case Project.Configuration.OutputType.Dll:
-                default:
-                    break;
-            }
-
-            return flags;
-        }
-        private Strings FilterClangLinkerFlags(Strings flags, GenerationContext context)
-        {
-            switch (context.Configuration.Output)
-            {
-                case Project.Configuration.OutputType.Exe:
-                    break;
-                case Project.Configuration.OutputType.Lib:
-                    break;
-                case Project.Configuration.OutputType.Dll:
-                    break;
-                default:
-                    break;
-            }
-
-            return flags;
-        }
-        private Strings FilterGccLinkerFlags(Strings flags, GenerationContext context)
-        {
-            switch (context.Configuration.Output)
-            {
-                case Project.Configuration.OutputType.Exe:
-                    break;
-                case Project.Configuration.OutputType.Lib:
-                    break;
-                case Project.Configuration.OutputType.Dll:
-                    break;
-                default:
-                    break;
-            }
-
-            return flags;
-        }
-
-        private void RemoveIfContains(Strings flags, string value)
-        {
-            flags.RemoveAll(x => x.StartsWith(value));
-        }
-
+        // This converts all the sharpmake settings to compiler and linker specifics settings
+        // They're all stored in a map in the generation context
         private void GenerateConfOptions(GenerationContext context)
         {
             // generate all configuration options once...
