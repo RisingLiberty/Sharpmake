@@ -8,10 +8,83 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using LibGit2Sharp;
 
 namespace Sharpmake.Generators.Generic
 {
+    public class ObjectCloner
+    {
+        public static T DeepClone<T>(T obj)
+        {
+            if (obj == null)
+                throw new ArgumentNullException(nameof(obj));
+
+            return (T)CloneObject(obj, new Dictionary<object, object>());
+        }
+
+        private static object CloneObject(object obj, Dictionary<object, object> visited)
+        {
+            if (obj == null)
+                return null;
+
+            Type type = obj.GetType();
+
+            // If the object has already been visited, return the existing cloned instance
+            if (visited.ContainsKey(obj))
+            {
+                return visited[obj];
+            }
+
+            // If the object is a simple type, just return it
+            if (type.IsValueType || type == typeof(string))
+            {
+                return obj;
+            }
+
+            // If the object is an array, clone each element recursively
+            if (type.IsArray)
+            {
+                Array originalArray = (Array)obj;
+                Array clonedArray = Array.CreateInstance(type.GetElementType(), originalArray.Length);
+                visited[obj] = clonedArray;
+
+                for (int i = 0; i < originalArray.Length; i++)
+                {
+                    clonedArray.SetValue(CloneObject(originalArray.GetValue(i), visited), i);
+                }
+
+                return clonedArray;
+            }
+
+            // If the object is a class, clone each field or property recursively
+            object clonedObject = Activator.CreateInstance(type);
+            visited[obj] = clonedObject;
+
+            FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            PropertyInfo[] properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+            foreach (var field in fields)
+            {
+                object originalFieldValue = field.GetValue(obj);
+                object clonedFieldValue = CloneObject(originalFieldValue, visited);
+                field.SetValue(clonedObject, clonedFieldValue);
+            }
+
+            foreach (var property in properties)
+            {
+                if (property.CanRead && property.CanWrite)
+                {
+                    object originalPropertyValue = property.GetValue(obj);
+                    object clonedPropertyValue = CloneObject(originalPropertyValue, visited);
+                    property.SetValue(clonedObject, clonedPropertyValue);
+                }
+            }
+
+            return clonedObject;
+        }
+    }
+
     // A ninja project is the representation of a project
     // That uses ninja files to build itself.
     // A ninja project is a json file listing the project name
@@ -296,7 +369,30 @@ namespace Sharpmake.Generators.Generic
 
             private Strings GetCompilerFlags(GenerationContext context)
             {
-                return new Strings(context.CommandLineOptions.Values);
+                // If the file is modified, we don't want to use optimization
+                // As the user will likely want to debug this file
+                if (IsFileModifiedFromGit(Input))
+                {
+                    // Deepcopy the context, then disable the optimisation settings
+                    GenerationContext context2 = new GenerationContext(context.Builder, context.ProjectPath, context.Project, context.Configuration);
+                    context2.Configuration = ObjectCloner.DeepClone(context.Configuration);
+                    //var options = new JsonSerializerOptions
+                    //{
+                    //    ReferenceHandler = ReferenceHandler.Preserve
+                    //};
+                    //string configSerialized = JsonSerializer.Serialize(context.Configuration, options);
+                    //context2.Configuration = JsonSerializer.Deserialize<Project.Configuration>(configSerialized, options);
+                    context2.Configuration.Options.Add(Options.Vc.Compiler.Intrinsic.Disable);
+                    context2.Configuration.Options.Add(Options.Vc.Compiler.Inline.Default);
+                    context2.Configuration.Options.Add(Options.Vc.Compiler.FavorSizeOrSpeed.Neither);
+                    context2.Configuration.Options.Add(Options.Vc.Compiler.Optimization.Disable);
+                    GenerateConfOptions(context2);
+                    return new Strings(context2.CommandLineOptions.Values);
+                }
+                else
+                {
+                    return new Strings(context.CommandLineOptions.Values);
+                }
             }
         }
 
@@ -804,6 +900,7 @@ namespace Sharpmake.Generators.Generic
 
         private static readonly string NinjaExtension = ".ninja";
         private static readonly string ProjectExtension = ".nproj";
+        private static Repository Repo = new Repository(Directory.GetCurrentDirectory());
 
         // Take in a list of flags and merge them into 1 string
         private static string MergeMultipleFlagsToString(Strings options, bool addQuotes = false, string perOptionPrefix = "")
@@ -854,6 +951,12 @@ namespace Sharpmake.Generators.Generic
                 }
             }
             return result;
+        }
+
+        private static bool IsFileModifiedFromGit(string filepath)
+        {
+            FileStatus status = Repo.RetrieveStatus(filepath);
+            return (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
         }
 
         // This is the main generation function for ninja project files
@@ -956,14 +1059,16 @@ namespace Sharpmake.Generators.Generic
         {
             Strings result = new Strings();
 
-            Repository repo = new Repository(Directory.GetCurrentDirectory());
             UnityFilesGenerator unityFilesGenerator = new UnityFilesGenerator(config.MaxFilesPerUnityFile, config.IntermediatePath);
 
             foreach (string fileToCompile in filesToCompile)
             {
                 // Modified files are not added in unity builds as it's faster to exclude them and compile them seperately
-                FileStatus status = repo.RetrieveStatus(fileToCompile);
-                bool isModified = (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
+                bool isModified = IsFileModifiedFromGit(fileToCompile);
+                if (isModified)
+                {
+                    Console.WriteLine($"Excluding {fileToCompile} from unity build as its modified");
+                }
 
                 // of course we don't want to include files the user has specified that we shouldn't
                 bool isExcludeFromJumboBuild = config.ResolvedSourceFilesExcludeFromJumboBuild.Contains(fileToCompile);
@@ -1403,7 +1508,7 @@ namespace Sharpmake.Generators.Generic
 
         // This converts all the sharpmake settings to compiler and linker specifics settings
         // They're all stored in a map in the generation context
-        private void GenerateConfOptions(GenerationContext context)
+        private static void GenerateConfOptions(GenerationContext context)
         {
             // generate all configuration options once...
             var projectOptionsGen = new GenericProjectOptionsGenerator();
