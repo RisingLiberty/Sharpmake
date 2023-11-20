@@ -158,6 +158,7 @@
       <Project>{15f793c7-9e88-64a9-591c-7244fcc6b771}</Project>
       <Name>Sharpmake</Name>
     </ProjectReference>
+    <ProjectReference Include="S:\Downloads\libgit2sharp-master\LibGit2Sharp\LibGit2Sharp.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 </Project>
