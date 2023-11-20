@@ -171,6 +171,7 @@
     <Compile Include="TrackedConfiguration.cs" />
     <Compile Include="TrackedProject.cs" />
     <Compile Include="UniqueList.cs" />
+    <Compile Include="UnityFilesGenerator.cs" />
     <Compile Include="Util.cs" />
     <Compile Include="VariableAssignment.cs" />
   </ItemGroup>
