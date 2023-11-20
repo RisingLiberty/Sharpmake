@@ -299,8 +299,6 @@ namespace Sharpmake.Generators.Generic
 
             private Strings GetCompilerFlags(GenerationContext context)
             {
-                Strings result = new Strings(context.CommandLineOptions.Values);
-
                 // If the file is modified, we don't want to use optimization
                 // As the user will likely want to debug this file
                 if (IsFileModifiedFromGit(Input))
@@ -933,7 +931,7 @@ namespace Sharpmake.Generators.Generic
                 // to use the unity files instead and not the actual source files of the project
                 if (config.Options.Contains(Options.Vc.Compiler.JumboBuild.Enable))
                 {
-                    filesToCompile = GenerateUnityFiles(config, filesToCompile);
+                    filesToCompile = GenerateUnityFiles(context, filesToCompile);
                 }
 
                 // Generate the per config ninja file
@@ -1002,11 +1000,11 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        private Strings GenerateUnityFiles(Project.Configuration config, Strings filesToCompile)
+        private Strings GenerateUnityFiles(GenerationContext context, Strings filesToCompile)
         {
             Strings result = new Strings();
 
-            UnityFilesGenerator unityFilesGenerator = new UnityFilesGenerator(config.MaxFilesPerUnityFile, config.IntermediatePath);
+            UnityFilesGenerator unityFilesGenerator = new UnityFilesGenerator(context.Configuration.MaxFilesPerUnityFile, context.Configuration.IntermediatePath);
 
             foreach (string fileToCompile in filesToCompile)
             {
@@ -1014,11 +1012,11 @@ namespace Sharpmake.Generators.Generic
                 bool isModified = IsFileModifiedFromGit(fileToCompile);
                 if (isModified)
                 {
-                    Console.WriteLine($"Excluding {fileToCompile} from unity build as its modified");
+                    context.Builder.LogWriteLine($"Excluding {fileToCompile} from unity build as its modified");
                 }
 
                 // of course we don't want to include files the user has specified that we shouldn't
-                bool isExcludeFromJumboBuild = config.ResolvedSourceFilesExcludeFromJumboBuild.Contains(fileToCompile);
+                bool isExcludeFromJumboBuild = context.Configuration.ResolvedSourceFilesExcludeFromJumboBuild.Contains(fileToCompile);
 
                 // when not adding to unity file, we add the source file to the result already
                 if (isModified || isExcludeFromJumboBuild)
