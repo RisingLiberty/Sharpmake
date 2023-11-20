@@ -10,81 +10,10 @@ using System.Text.Json.Serialization;
 using System.Runtime.InteropServices;
 using System.Reflection;
 using LibGit2Sharp;
+using System.Runtime.Serialization;
 
 namespace Sharpmake.Generators.Generic
 {
-    public class ObjectCloner
-    {
-        public static T DeepClone<T>(T obj)
-        {
-            if (obj == null)
-                throw new ArgumentNullException(nameof(obj));
-
-            return (T)CloneObject(obj, new Dictionary<object, object>());
-        }
-
-        private static object CloneObject(object obj, Dictionary<object, object> visited)
-        {
-            if (obj == null)
-                return null;
-
-            Type type = obj.GetType();
-
-            // If the object has already been visited, return the existing cloned instance
-            if (visited.ContainsKey(obj))
-            {
-                return visited[obj];
-            }
-
-            // If the object is a simple type, just return it
-            if (type.IsValueType || type == typeof(string))
-            {
-                return obj;
-            }
-
-            // If the object is an array, clone each element recursively
-            if (type.IsArray)
-            {
-                Array originalArray = (Array)obj;
-                Array clonedArray = Array.CreateInstance(type.GetElementType(), originalArray.Length);
-                visited[obj] = clonedArray;
-
-                for (int i = 0; i < originalArray.Length; i++)
-                {
-                    clonedArray.SetValue(CloneObject(originalArray.GetValue(i), visited), i);
-                }
-
-                return clonedArray;
-            }
-
-            // If the object is a class, clone each field or property recursively
-            object clonedObject = Activator.CreateInstance(type);
-            visited[obj] = clonedObject;
-
-            FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            PropertyInfo[] properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-            foreach (var field in fields)
-            {
-                object originalFieldValue = field.GetValue(obj);
-                object clonedFieldValue = CloneObject(originalFieldValue, visited);
-                field.SetValue(clonedObject, clonedFieldValue);
-            }
-
-            foreach (var property in properties)
-            {
-                if (property.CanRead && property.CanWrite)
-                {
-                    object originalPropertyValue = property.GetValue(obj);
-                    object clonedPropertyValue = CloneObject(originalPropertyValue, visited);
-                    property.SetValue(clonedObject, clonedPropertyValue);
-                }
-            }
-
-            return clonedObject;
-        }
-    }
-
     // A ninja project is the representation of a project
     // That uses ninja files to build itself.
     // A ninja project is a json file listing the project name
@@ -211,6 +140,7 @@ namespace Sharpmake.Generators.Generic
             private string Input;
             private string Output;
             private GenerationContext Context;
+            private static List<string> DebugCompilerFlags = new List<string>();
 
             // Defines needed on the commandline for this compile statement
             public Strings Defines { get; set; }
@@ -369,25 +299,42 @@ namespace Sharpmake.Generators.Generic
 
             private Strings GetCompilerFlags(GenerationContext context)
             {
+                Strings result = new Strings(context.CommandLineOptions.Values);
+
                 // If the file is modified, we don't want to use optimization
                 // As the user will likely want to debug this file
                 if (IsFileModifiedFromGit(Input))
                 {
-                    // Deepcopy the context, then disable the optimisation settings
-                    GenerationContext context2 = new GenerationContext(context.Builder, context.ProjectPath, context.Project, context.Configuration);
-                    context2.Configuration = ObjectCloner.DeepClone(context.Configuration);
-                    //var options = new JsonSerializerOptions
-                    //{
-                    //    ReferenceHandler = ReferenceHandler.Preserve
-                    //};
-                    //string configSerialized = JsonSerializer.Serialize(context.Configuration, options);
-                    //context2.Configuration = JsonSerializer.Deserialize<Project.Configuration>(configSerialized, options);
-                    context2.Configuration.Options.Add(Options.Vc.Compiler.Intrinsic.Disable);
-                    context2.Configuration.Options.Add(Options.Vc.Compiler.Inline.Default);
-                    context2.Configuration.Options.Add(Options.Vc.Compiler.FavorSizeOrSpeed.Neither);
-                    context2.Configuration.Options.Add(Options.Vc.Compiler.Optimization.Disable);
-                    GenerateConfOptions(context2);
-                    return new Strings(context2.CommandLineOptions.Values);
+                    if (DebugCompilerFlags.Count == 0)
+                    {
+                        // Disable the optimisation settings
+                        context.Configuration.Options.Add(Options.Vc.Compiler.Intrinsic.Disable);
+                        context.Configuration.Options.Add(Options.Vc.Compiler.Inline.Default);
+                        context.Configuration.Options.Add(Options.Vc.Compiler.FavorSizeOrSpeed.Neither);
+                        context.Configuration.Options.Add(Options.Vc.Compiler.Optimization.Disable);
+
+                        // Save the old commandline options
+                        var oldCommandLineOptions = context.CommandLineOptions;
+                        var oldLinkerCommandLineOptions = context.LinkerCommandLineOptions;
+
+                        // Create the commandline optoins
+                        GenerateConfOptions(context);
+
+                        // Save the new, debug commandline options
+                        DebugCompilerFlags = new List<string>(context.CommandLineOptions.Values);
+
+                        // Remove the optimisation settings
+                        context.Configuration.Options.Remove(Options.Vc.Compiler.Intrinsic.Disable);
+                        context.Configuration.Options.Remove(Options.Vc.Compiler.Inline.Default);
+                        context.Configuration.Options.Remove(Options.Vc.Compiler.FavorSizeOrSpeed.Neither);
+                        context.Configuration.Options.Remove(Options.Vc.Compiler.Optimization.Disable);
+
+                        // Put back the original commandline options
+                        context.CommandLineOptions = oldCommandLineOptions;
+                        context.LinkerCommandLineOptions = oldLinkerCommandLineOptions;
+                    }
+
+                    return new Strings(DebugCompilerFlags);
                 }
                 else
                 {
