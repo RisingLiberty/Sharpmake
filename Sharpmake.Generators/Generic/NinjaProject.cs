@@ -900,6 +900,8 @@ namespace Sharpmake.Generators.Generic
 
         private static bool IsFileModifiedFromGit(string filepath)
         {
+            // Set the ignore case config value to true or we get errors here
+            Repo.Config.Set("core.ignorecase", true);
             FileStatus status = Repo.RetrieveStatus(filepath);
             return (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
         }
