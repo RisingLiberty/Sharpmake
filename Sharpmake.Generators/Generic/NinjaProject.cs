@@ -715,11 +715,15 @@ namespace Sharpmake.Generators.Generic
                 public override void Write(Utf8JsonWriter writer, Dictionary<Compiler, CompilerConfiguration> value, JsonSerializerOptions options)
                 {
                     // Configs are structured per compiler, per config
+                    writer.WriteStartObject(); // Write the opening brace
+
                     foreach (var kvp in value)
                     {
                         Compiler compiler = kvp.Key;
                         WriteCompilerConfigs(writer, options, compiler, kvp.Value);
                     }
+                    
+                    writer.WriteEndObject(); // Write the closing brace
                 }
 
                 public override Dictionary<Compiler, CompilerConfiguration> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -730,17 +734,16 @@ namespace Sharpmake.Generators.Generic
 
                 private void WriteCompilerConfigs(Utf8JsonWriter writer, JsonSerializerOptions options, Compiler compiler, CompilerConfiguration config)
                 {
-                    writer.WriteStartObject(); // Write the opening brace
                     writer.WritePropertyName(compiler.ToString().ToLower()); // write compiler name
 
                     writer.WriteStartObject();  // Write the opening brace
+                    
                     foreach (var kvp2 in config.configs)
                     {
                         writer.WritePropertyName(kvp2.Key); // write config name
                         JsonSerializer.Serialize(writer, kvp2.Value, options); // write config settings
                     }
-                    writer.WriteEndObject(); // Write the closing brace
-
+                    
                     writer.WriteEndObject(); // Write the closing brace
                 }
             }
