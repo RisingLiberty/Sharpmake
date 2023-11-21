@@ -20,8 +20,6 @@ namespace Sharpmake
             MaxFilesPerUnityFile = maxFilesPerUnityFile;
             IntermediatePath = intermediatePath;
             UnityFilesDir = Path.Combine(IntermediatePath, "unity");
-
-            ClearUnityFilesDir();
         }
 
         public void AddFile(string filePath)
@@ -33,47 +31,40 @@ namespace Sharpmake
         {
             List<string> unityFiles = new List<string>();
 
-            StringBuilder sb = new StringBuilder();
+            Generators.FileGenerator fileGenerator = new Generators.FileGenerator();
+            
             int numUnityFilesAdded = 0;
             foreach (string file in Files)
             {
-                AddInclude(sb, file);
+                AddInclude(fileGenerator, file);
                 ++numUnityFilesAdded;
 
                 if (MaxFilesPerUnityFile != 0 && numUnityFilesAdded > MaxFilesPerUnityFile)
                 {
                     string unityFileFilename = Path.Combine(UnityFilesDir, $"unity_{unityFiles.Count}.cpp");
-                    File.WriteAllText(unityFileFilename, sb.ToString());
-                    sb.Clear();
+                    FileInfo fileInfo = new FileInfo(unityFileFilename);
+                    Util.FileWriteIfDifferentInternal(fileInfo, fileGenerator.ToMemoryStream());
+                    fileGenerator = new Generators.FileGenerator();
                     unityFiles.Add(unityFileFilename);
                 }
             }
 
-            if (sb.Length > 0)
+            if (fileGenerator.ToString().Length > 0)
             {
                 string unityFileFilename = Path.Combine(UnityFilesDir, $"unity_{unityFiles.Count}.cpp");
-                File.WriteAllText(unityFileFilename, sb.ToString());
-                sb.Clear();
+                FileInfo fileInfo = new FileInfo(unityFileFilename);
+                Util.FileWriteIfDifferentInternal(fileInfo, fileGenerator.ToMemoryStream());
                 unityFiles.Add(unityFileFilename);
             }
 
             return unityFiles;
         }
 
-        private void AddInclude(StringBuilder sb, string filePath)
+        private void AddInclude(Generators.FileGenerator fileGenerator, string filePath)
         {
-            sb.AppendLine("");
-            sb.AppendLine($"#include \"{filePath.Replace('\\', '/')}\"");
-            sb.AppendLine("");
-        }
-
-        private void ClearUnityFilesDir()
-        {
-            if (Directory.Exists(UnityFilesDir))
-            {
-                Directory.Delete(UnityFilesDir, recursive: true);
-            }
-            Directory.CreateDirectory(UnityFilesDir);
+            fileGenerator.WriteLine("");
+            fileGenerator.WriteLine($"#include \"{filePath.Replace('\\', '/')}\"");
+            fileGenerator.WriteLine("");
         }
     }
 }
