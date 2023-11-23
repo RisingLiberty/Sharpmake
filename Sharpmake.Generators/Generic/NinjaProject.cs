@@ -438,7 +438,7 @@ namespace Sharpmake.Generators.Generic
 
             private string CreateLinkerResponseFile(GenerationContext context, Strings inputFiles)
             {
-                string fullFileName = $"{context.Configuration.TargetFileFullName}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}_linker_response.txt";
+                string fullFileName = $"{context.Configuration.TargetFileFullName}_linker_response.txt";
                 string responseFilePath = Path.Combine(context.Configuration.IntermediatePath, fullFileName);
 
                 StringBuilder sb = new StringBuilder();
@@ -696,7 +696,7 @@ namespace Sharpmake.Generators.Generic
                     string stem = Path.GetFileNameWithoutExtension(libFile);
                     string extension = Path.GetExtension(libFile);
 
-                    string fullFileName = $"{stem}_{context.Configuration.Target.ProjectConfigurationName}_{context.Compiler}{extension}";
+                    string fullFileName = $"{stem}{extension}";
                     result.Add(fullFileName);
                 }
                 return result;
@@ -1186,17 +1186,10 @@ namespace Sharpmake.Generators.Generic
             }
         }
 
-        // The filename of the  
-        private static string UniqueOutputFilename(string targetFileFullName, string configName, string compiler, string targetFileFullExtension)
-        {
-            return $"{targetFileFullName}_{configName}_{compiler}{targetFileFullExtension}";
-
-        }
-
         // The full target filepath for the context
         private static string FullTargetPath(GenerationContext context)
         {
-            string fullFileName = UniqueOutputFilename(context.Configuration.TargetFileFullName, context.Configuration.Target.ProjectConfigurationName, context.Compiler.ToString(), context.Configuration.TargetFileFullExtension);
+            string fullFileName = context.Configuration.TargetFileFullName + context.Configuration.TargetFileFullExtension;
             return Path.Combine(context.Configuration.TargetPath, fullFileName);
         }
 
@@ -1418,7 +1411,7 @@ namespace Sharpmake.Generators.Generic
         // A phony name is just an alias for another build statement
         private static string GeneratePhonyName(Project.Configuration config, Compiler compiler)
         {
-            return $"{ config.Target.ProjectConfigurationName}_{compiler}_{config.TargetFileFullName}".ToLower();
+            return $"{config.TargetFileFullName}".ToLower();
         }
 
         // Generate the different build statements that act as the main interface
