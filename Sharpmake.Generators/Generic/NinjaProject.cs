@@ -447,6 +447,11 @@ namespace Sharpmake.Generators.Generic
                     sb.Append($"{file.Replace('\\', '/')} ");
                 }
 
+                if (!Directory.Exists(context.Configuration.IntermediatePath))
+                {
+                    Directory.CreateDirectory(context.Configuration.IntermediatePath);
+                }
+
                 File.WriteAllText(responseFilePath, sb.ToString());
                 return responseFilePath;
             }
