@@ -140,7 +140,7 @@ namespace Sharpmake.Generators.Generic
             private string Input;
             private string Output;
             private GenerationContext Context;
-            private static List<string> DebugCompilerFlags = new List<string>();
+            private static Dictionary<Configuration, List<string>> DebugCompilerFlagsPerConfig = new Dictionary<Configuration, List<string>>();
 
             // Defines needed on the commandline for this compile statement
             public Strings Defines { get; set; }
@@ -303,7 +303,7 @@ namespace Sharpmake.Generators.Generic
                 // As the user will likely want to debug this file
                 if (IsFileModifiedFromGit(Input))
                 {
-                    if (DebugCompilerFlags.Count == 0)
+                    if (!DebugCompilerFlagsPerConfig.ContainsKey(context.Configuration))
                     {
                         // Disable the optimisation settings
                         context.Configuration.Options.Add(Options.Vc.Compiler.Intrinsic.Disable);
@@ -319,7 +319,7 @@ namespace Sharpmake.Generators.Generic
                         GenerateConfOptions(context);
 
                         // Save the new, debug commandline options
-                        DebugCompilerFlags = new List<string>(context.CommandLineOptions.Values);
+                        DebugCompilerFlagsPerConfig[context.Configuration] = new List<string>(context.CommandLineOptions.Values);
 
                         // Remove the optimisation settings
                         context.Configuration.Options.Remove(Options.Vc.Compiler.Intrinsic.Disable);
@@ -332,7 +332,7 @@ namespace Sharpmake.Generators.Generic
                         context.LinkerCommandLineOptions = oldLinkerCommandLineOptions;
                     }
 
-                    return new Strings(DebugCompilerFlags);
+                    return new Strings(DebugCompilerFlagsPerConfig[context.Configuration]);
                 }
                 else
                 {
