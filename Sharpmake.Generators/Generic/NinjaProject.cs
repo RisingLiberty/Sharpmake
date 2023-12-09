@@ -1257,11 +1257,26 @@ namespace Sharpmake.Generators.Generic
 
             foreach (var sourceFile in filesToCompile)
             {
-                string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
-                string fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
-                string fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
+                string fileDir = "";
+                string fileStem = "";
+
+                // Unity files are under the intermediate directory
+                // files excluded from unity files are not
+                if (!sourceFile.Contains(context.Configuration.IntermediatePath))
+                {
+                    string pathRelativeToSourceRoot = Util.PathGetRelative(context.Project.SourceRootPath, sourceFile);
+                    fileDir = Path.GetDirectoryName(pathRelativeToSourceRoot);
+                    fileStem = Path.GetFileNameWithoutExtension(pathRelativeToSourceRoot);
+                }
+                else
+                {
+                    fileDir = "";
+                    fileStem = Path.GetFileNameWithoutExtension(sourceFile);
+
+                }
                 string outputExtension = context.Configuration.Target.GetFragment<Compiler>() == Compiler.MSVC ? ".obj" : ".o";
                 string objPath = $"{Path.Combine(context.Configuration.IntermediatePath, fileDir, fileStem)}{outputExtension}";
+                objPath = Util.PathMakeStandard(objPath);
                 objFilePaths.Add(objPath);
             }
 
