@@ -825,13 +825,15 @@ namespace Sharpmake.Generators.Generic
             }
 
             public string name { get; set; }
+            public string root { get; set; }
 
             [JsonConverter(typeof(ConfigConverter))]
             public Dictionary<Compiler, CompilerConfiguration> configs { get; set; }
             
-            public ProjectFile(string projectName, List<Project.Configuration> configurations)
+            public ProjectFile(string projectName, string projectRoot, List<Project.Configuration> configurations)
             {
                 name = projectName;
+                root = projectRoot;
                 configs = new Dictionary<Compiler, CompilerConfiguration>();
 
                 // Loop over all the configs of this project and link compiler with configs
@@ -1044,7 +1046,7 @@ namespace Sharpmake.Generators.Generic
         // all the ninja files generated for this project together
         private void WriteProjectFile(Builder builder, Project project, List<Project.Configuration> configurations, List<string> generatedFiles, List<string> skipFiles)
         {
-            ProjectFile projectFile = new ProjectFile(project.Name, configurations);
+            ProjectFile projectFile = new ProjectFile(project.Name, project.SourceRootPath, configurations);
             var options = new JsonSerializerOptions
             {
                 WriteIndented = true, // Makes it a bit more human friendly
