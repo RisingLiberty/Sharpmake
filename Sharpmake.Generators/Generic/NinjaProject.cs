@@ -411,7 +411,7 @@ namespace Sharpmake.Generators.Generic
                     libraryFiles = MergeMultipleFlagsToString(LinkerLibs, false, LinkerFlagLookupTable.Get(Context.Compiler, LinkerFlag.IncludeFile));
                 }
 
-                fileGenerator.Write($"{Template.BuildBegin}{FullNinjaTargetPath(Context)}: {Template.RuleStatement.LinkToUse(Context)}");
+                fileGenerator.Write($"{Template.BuildBegin}{FullNinjaTargetPath(Context.Configuration)}: {Template.RuleStatement.LinkToUse(Context)}");
                 fileGenerator.Write(" | ");
                 
                 foreach (string objPath in Input)
@@ -419,6 +419,14 @@ namespace Sharpmake.Generators.Generic
                     fileGenerator.Write($" {ConvertToNinjaFilePath(objPath)}");
                 }
 
+                if (Context.Configuration.Output != Project.Configuration.OutputType.Lib)
+                {
+                    foreach (Project.Configuration config in Context.Configuration.ResolvedDependencies)
+                    {
+                        string fullTargetPath = FullNinjaTargetPath(config);
+                        fileGenerator.Write($" {fullTargetPath}");
+                    }
+                }
                 fileGenerator.WriteLine("");
 
                 WriteIfNotEmpty(fileGenerator, $"  {Template.BuildStatement.LinkerResponseFile(Context)}", $"@{ConvertToNinjaFilePath(ResponseFilePath)}");
@@ -1194,16 +1202,16 @@ namespace Sharpmake.Generators.Generic
         }
 
         // The full target filepath for the context
-        private static string FullTargetPath(GenerationContext context)
+        private static string FullTargetPath(Project.Configuration config)
         {
-            string fullFileName = context.Configuration.TargetFileFullName + context.Configuration.TargetFileFullExtension;
-            return Path.Combine(context.Configuration.TargetPath, fullFileName);
+            string fullFileName = config.TargetFileFullName + config.TargetFileFullExtension;
+            return Path.Combine(config.TargetPath, fullFileName);
         }
 
         // The full target filepath in ninja format for the context
-        private static string FullNinjaTargetPath(GenerationContext context)
+        private static string FullNinjaTargetPath(Project.Configuration config)
         {
-            return ConvertToNinjaFilePath(FullTargetPath(context));
+            return ConvertToNinjaFilePath(FullTargetPath(config));
         }
 
         // Change relative pdb path setting to disable
@@ -1312,7 +1320,7 @@ namespace Sharpmake.Generators.Generic
         // To make it easy for the archiver, we just generate them from scratch every time
         private string DeleteOutputIfExists(GenerationContext context)
         {
-            string targetPath = FullTargetPath(context);
+            string targetPath = FullTargetPath(context.Configuration);
             return $"cmd.exe /C if exist \"{targetPath}\" del \"{targetPath}\"";
         }
 
@@ -1423,7 +1431,7 @@ namespace Sharpmake.Generators.Generic
         {
             List<LinkStatement> statements = new List<LinkStatement>();
 
-            string outputPath = FullNinjaTargetPath(context);
+            string outputPath = FullNinjaTargetPath(context.Configuration);
 
             statements.Add(new LinkStatement(context, outputPath, objFilePaths));
 
@@ -1442,7 +1450,7 @@ namespace Sharpmake.Generators.Generic
         {
             //eg. build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
             string phony_name = GeneratePhonyName(context.Configuration, context.Compiler);
-            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullNinjaTargetPath(context)}");
+            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullNinjaTargetPath(context.Configuration)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CleanBuildStatement(context)}: {Template.RuleStatement.Clean(context)}");
             fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CompDBBuildStatement(context)}: {Template.RuleStatement.CompilerDB(context)}");
             fileGenerator.WriteLine($"");
