@@ -141,7 +141,7 @@ namespace Sharpmake.Generators.Generic
             private string Output;
             private GenerationContext Context;
             private static Dictionary<Configuration, List<string>> DebugCompilerFlagsPerConfig = new Dictionary<Configuration, List<string>>();
-
+            private static object CompilerFlagsPerConfigLock = new object();
             // Defines needed on the commandline for this compile statement
             public Strings Defines { get; set; }
             // The path where dependencies will be written to
@@ -319,7 +319,10 @@ namespace Sharpmake.Generators.Generic
                         GenerateConfOptions(context);
 
                         // Save the new, debug commandline options
-                        DebugCompilerFlagsPerConfig[context.Configuration] = new List<string>(context.CommandLineOptions.Values);
+                        lock (CompilerFlagsPerConfigLock)
+                        {
+                            DebugCompilerFlagsPerConfig[context.Configuration] = new List<string>(context.CommandLineOptions.Values);
+                        }
 
                         // Remove the optimisation settings
                         context.Configuration.Options.Remove(Options.Vc.Compiler.Intrinsic.Disable);
@@ -860,7 +863,12 @@ namespace Sharpmake.Generators.Generic
 
         private static readonly string NinjaExtension = ".ninja";
         private static readonly string ProjectExtension = ".nproj";
-        private static Repository Repo = new Repository(Directory.GetCurrentDirectory());
+
+        // It's possible a user downloaded a zip from github instead of cloning
+        // In that case, the directory is invalid and repo is null
+        private static Repository Repo = Repository.IsValid(Directory.GetCurrentDirectory()) 
+            ? new Repository(Directory.GetCurrentDirectory()) 
+            : null;
 
         // Take in a list of flags and merge them into 1 string
         private static string MergeMultipleFlagsToString(Strings options, bool addQuotes = false, string perOptionPrefix = "")
@@ -915,6 +923,12 @@ namespace Sharpmake.Generators.Generic
 
         private static bool IsFileModifiedFromGit(string filepath)
         {
+            // If we're not working from a git repository, we can't check if a file is modified
+            if (Repo == null)
+            {
+                return false;
+            }
+
             // Set the ignore case config value to true or we get errors here
             Repo.Config.Set("core.ignorecase", true);
             FileStatus status = Repo.RetrieveStatus(filepath);
