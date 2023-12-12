@@ -1105,7 +1105,7 @@ namespace Sharpmake
         [Obsolete("Sharpmake doesn't support vs2010 anymore.")]
         public static bool IsVisualStudio2010Installed() => false;
 
-        private static bool IsVisualStudioInstalled(DevEnv devEnv)
+        public static bool IsVisualStudioInstalled(DevEnv devEnv)
         {
 #if NET5_0_OR_GREATER
             if (!OperatingSystem.IsWindows())
