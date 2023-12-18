@@ -63,7 +63,7 @@ namespace Sharpmake
         private void AddInclude(Generators.FileGenerator fileGenerator, string filePath)
         {
             fileGenerator.WriteLine("");
-            fileGenerator.WriteLine($"#include \"{filePath.Replace('\\', '/')}\"");
+            fileGenerator.WriteLine($"#include \"{filePath.Replace('\\', '/')}\" //NOLINT(bugprone-suspicious-include)");
             fileGenerator.WriteLine("");
         }
     }
