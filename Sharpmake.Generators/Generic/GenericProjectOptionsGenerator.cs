@@ -2256,7 +2256,7 @@ namespace Sharpmake.Generators.Generic
 
         private void GenerateManifestToolOptions(IGenerationContext context, ProjectOptionsGenerationContext optionsContext)
         {
-            if (!context.DevelopmentEnvironment.IsVisualStudio()) // TODO: ideally this option generator should be split between VS / non-VS
+            if (!context.DevelopmentEnvironment.IsVisualStudio() && context.DevelopmentEnvironment != DevEnv.ninja) // TODO: ideally this option generator should be split between VS / non-VS
                 return;
 
             Strings manifestInputs = new Strings();
@@ -2286,13 +2286,13 @@ namespace Sharpmake.Generators.Generic
                 if (embedManifest == Options.Vc.Linker.EmbedManifest.No)
                     throw new NotImplementedException("Sharpmake does not support manifestinputs without embedding the manifest!");
 
-                var cmdManifests = manifestInputs.Select(p => FastBuild.Bff.CmdLineConvertIncludePathsFunc(context, optionsContext.Resolver, p, "/manifestinput:"));
+                //var cmdManifests = manifestInputs.Select(p => FastBuild.Bff.CmdLineConvertIncludePathsFunc(context, optionsContext.Resolver, p, "/manifestinput:"));
 
-                context.CommandLineOptions["ManifestInputs"] = string.Join($"'{Environment.NewLine}                            + ' ", cmdManifests);
+                context.LinkerCommandLineOptions["ManifestInputs"] = manifestInputs.JoinStrings($"{Util.DoubleQuotes} /manifestinput:{Util.DoubleQuotes}", $"/manifestinput:{Util.DoubleQuotes}") + Util.DoubleQuotes;
             }
             else
             {
-                context.CommandLineOptions["ManifestInputs"] = FileGeneratorUtilities.RemoveLineTag;
+                context.LinkerCommandLineOptions["ManifestInputs"] = FileGeneratorUtilities.RemoveLineTag;
             }
         }
 
@@ -2596,7 +2596,7 @@ namespace Sharpmake.Generators.Generic
 
                 if (optionsContext.PlatformVcxproj.HasUserAccountControlSupport)
                 {
-                    context.CommandLineOptions["GenerateManifest"] = string.Format(@"/MANIFEST /MANIFESTUAC:""level=^'{0}^' uiAccess=^'false^'""", context.Configuration.ApplicationPermissions);
+                    //context.LinkerCommandLineOptions["GenerateManifest"] = string.Format(@"/MANIFEST /MANIFESTUAC:""level=^'{0}^' uiAccess=^'false^'""", context.Configuration.ApplicationPermissions);
 
                     switch (context.Configuration.ApplicationPermissions)
                     {
@@ -2611,7 +2611,7 @@ namespace Sharpmake.Generators.Generic
                 }
                 else
                 {
-                    context.CommandLineOptions["GenerateManifest"] = @"/MANIFEST /MANIFESTUAC:NO";
+                    context.LinkerCommandLineOptions["GenerateManifest"] = @"/MANIFEST /MANIFESTUAC:NO";
                     context.Options["UACExecutionLevel"] = FileGeneratorUtilities.RemoveLineTag;
                 }
 
@@ -2619,12 +2619,12 @@ namespace Sharpmake.Generators.Generic
                 {
                     string manifestFile = optionsContext.IntermediateDirectoryRelative + Util.WindowsSeparator + context.Configuration.TargetFileFullName + context.Configuration.ManifestFileSuffix;
                     context.Options["ManifestFile"] = manifestFile;
-                    context.CommandLineOptions["ManifestFile"] = @"/ManifestFile:""" + FormatCommandLineOptionPath(context, manifestFile) + @"""";
+                    context.LinkerCommandLineOptions["ManifestFile"] = @"/ManifestFile:""" + FormatCommandLineOptionPath(context, manifestFile) + @"""";
                 }
                 else
                 {
                     context.Options["ManifestFile"] = FileGeneratorUtilities.RemoveLineTag;
-                    context.CommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
+                    context.LinkerCommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
                 }
             }),
             Options.Option(Options.Vc.Linker.GenerateManifest.Disable, () =>

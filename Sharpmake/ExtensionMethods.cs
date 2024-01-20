@@ -349,8 +349,13 @@ namespace Sharpmake
         private static readonly ConcurrentDictionary<DevEnv, string> s_visualStudioVCRootPathCache = new ConcurrentDictionary<DevEnv, string>();
         public static string GetVisualStudioVCRootPath(this DevEnv visualVersion)
         {
+            if (visualVersion == DevEnv.ninja)
+            {
+                visualVersion = KitsRootPaths.VsVersionForNinja();
+            }
+
             if (!visualVersion.IsVisualStudio())
-                throw new Error($"{visualVersion} is not a visual studio version!");
+                throw new Error($"{visualVersion} is not a visual studio version or ninja!");
 
             string visualStudioVCRootPath = s_visualStudioVCRootPathCache.GetOrAdd(visualVersion, devEnv =>
             {

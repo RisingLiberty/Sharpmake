@@ -2177,7 +2177,7 @@ namespace Sharpmake.Generators.VisualStudio
 
                 if (optionsContext.PlatformVcxproj.HasUserAccountControlSupport)
                 {
-                    context.CommandLineOptions["GenerateManifest"] = string.Format(@"/MANIFEST /MANIFESTUAC:""level=^'{0}^' uiAccess=^'false^'""", context.Configuration.ApplicationPermissions);
+                    context.LinkerCommandLineOptions["GenerateManifest"] = string.Format(@"/MANIFEST /MANIFESTUAC:""level=^'{0}^' uiAccess=^'false^'""", context.Configuration.ApplicationPermissions);
 
                     switch (context.Configuration.ApplicationPermissions)
                     {
@@ -2192,7 +2192,7 @@ namespace Sharpmake.Generators.VisualStudio
                 }
                 else
                 {
-                    context.CommandLineOptions["GenerateManifest"] = @"/MANIFEST /MANIFESTUAC:NO";
+                    context.LinkerCommandLineOptions["GenerateManifest"] = @"/MANIFEST /MANIFESTUAC:NO";
                     context.Options["UACExecutionLevel"] = FileGeneratorUtilities.RemoveLineTag;
                 }
 
@@ -2205,7 +2205,7 @@ namespace Sharpmake.Generators.VisualStudio
                 else
                 {
                     context.Options["ManifestFile"] = FileGeneratorUtilities.RemoveLineTag;
-                    context.CommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
+                    context.LinkerCommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
                 }
             }),
             Options.Option(Options.Vc.Linker.GenerateManifest.Disable, () =>
