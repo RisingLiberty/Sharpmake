@@ -1326,6 +1326,28 @@ namespace Sharpmake.Generators.Generic
             Options.Option(Options.Vc.General.WholeProgramOptimization.Disable, () => { context.Options["WholeProgramOptimization"] = "false"; context.Options["CompilerWholeProgramOptimization"] = "false"; context.CommandLineOptions["CompilerWholeProgramOptimization"] = FileGeneratorUtilities.RemoveLineTag; }),
             Options.Option(Options.Vc.General.WholeProgramOptimization.LinkTime, () => { context.Options["WholeProgramOptimization"] = "true"; context.Options["CompilerWholeProgramOptimization"] = "true"; context.CommandLineOptions["CompilerWholeProgramOptimization"] = "-flto"; })
             );
+
+            // Options.Vc.Compiler.AdditionalOptions
+            foreach (Tuple<OrderableStrings, string> optionsTuple in new[]
+                    {
+                        Tuple.Create(context.Configuration.AdditionalCompilerOptions, "AdditionalCompilerOptions"),
+                        Tuple.Create(context.Configuration.AdditionalCompilerOptionsOnPCHCreate, "AdditionalCompilerOptionsOnPCHCreate"),
+                        Tuple.Create(context.Configuration.AdditionalCompilerOptionsOnPCHUse, "AdditionalCompilerOptionsOnPCHUse")
+                    })
+            {
+                OrderableStrings optionsStrings = optionsTuple.Item1;
+                string optionsKey = optionsTuple.Item2;
+                if (optionsStrings.Any())
+                {
+                    optionsStrings.Sort();
+                    string additionalCompilerOptions = optionsStrings.JoinStrings(" ");
+                    context.Options[optionsKey] = additionalCompilerOptions;
+                }
+                else
+                {
+                    context.Options[optionsKey] = FileGeneratorUtilities.RemoveLineTag;
+                }
+            }
         }
         private void GenerateGccCompilerOptions(IGenerationContext context, ProjectOptionsGenerationContext optionsContext)
         {
@@ -1480,6 +1502,28 @@ namespace Sharpmake.Generators.Generic
             Options.Option(Options.Vc.Compiler.RTTI.Disable, () => { context.Options["RuntimeTypeInfo"] = "false"; context.CommandLineOptions["RuntimeTypeInfo"] = "-fno-rtti"; }),
             Options.Option(Options.Vc.Compiler.RTTI.Enable, () => { context.Options["RuntimeTypeInfo"] = "true"; context.CommandLineOptions["RuntimeTypeInfo"] = "-frtti"; })
             );
+
+            // Options.Vc.Compiler.AdditionalOptions
+            foreach (Tuple<OrderableStrings, string> optionsTuple in new[]
+                    {
+                        Tuple.Create(context.Configuration.AdditionalCompilerOptions, "AdditionalCompilerOptions"),
+                        Tuple.Create(context.Configuration.AdditionalCompilerOptionsOnPCHCreate, "AdditionalCompilerOptionsOnPCHCreate"),
+                        Tuple.Create(context.Configuration.AdditionalCompilerOptionsOnPCHUse, "AdditionalCompilerOptionsOnPCHUse")
+                    })
+            {
+                OrderableStrings optionsStrings = optionsTuple.Item1;
+                string optionsKey = optionsTuple.Item2;
+                if (optionsStrings.Any())
+                {
+                    optionsStrings.Sort();
+                    string additionalCompilerOptions = optionsStrings.JoinStrings(" ");
+                    context.Options[optionsKey] = additionalCompilerOptions;
+                }
+                else
+                {
+                    context.Options[optionsKey] = FileGeneratorUtilities.RemoveLineTag;
+                }
+            }
         }
 
         public static List<KeyValuePair<string, string>> ConvertPostBuildCopiesToRelative(Project.Configuration conf, string relativeTo)

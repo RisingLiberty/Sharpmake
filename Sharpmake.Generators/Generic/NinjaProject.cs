@@ -140,7 +140,7 @@ namespace Sharpmake.Generators.Generic
             private string Input;
             private string Output;
             private GenerationContext Context;
-            private static Dictionary<Configuration, List<string>> DebugCompilerFlagsPerConfig = new Dictionary<Configuration, List<string>>();
+            private static Dictionary<Configuration, Strings> DebugCompilerFlagsPerConfig = new Dictionary<Configuration, Strings>();
             private static object CompilerFlagsPerConfigLock = new object();
             // Defines needed on the commandline for this compile statement
             public Strings Defines { get; set; }
@@ -258,7 +258,6 @@ namespace Sharpmake.Generators.Generic
                         if (context.Configuration.NinjaEnableAddressSanitizer)
                         {
                             flags.Add("-fsanitize=address");
-                            context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
 
                             // disable lto to avoid asan odr issues.
                             // can't disable them with ASAN_OPTIONS=detect_odr_violation=0 due to unknown bug
@@ -269,12 +268,10 @@ namespace Sharpmake.Generators.Generic
                         if (context.Configuration.NinjaEnableUndefinedBehaviorSanitizer)
                         {
                             flags.Add("-fsanitize=undefined");
-                            context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
                         }
                         if (context.Configuration.NinjaEnableFuzzyTesting)
                         {
                             flags.Add("-fsanitize=fuzzer");
-                            context.CommandLineOptions["Optimization"] = "-O1"; // override optimization option to have stack frames
                         }
                         break;
                     case Compiler.GCC:
@@ -297,11 +294,24 @@ namespace Sharpmake.Generators.Generic
                 return flags;
             }
 
+            private Strings GetCompilerCommandlineFromOptions(IDictionary<string, string> CompilerOptions, IDictionary<string, string> Options)
+            {
+                Strings CmdLine = new Strings(CompilerOptions.Values);
+
+                if (Options.ContainsKey("AdditionalCompilerOptions") && Options["AdditionalCompilerOptions"] != FileGeneratorUtilities.RemoveLineTag)
+                {
+                    var additionalCompilerOptions = Options["AdditionalCompilerOptions"];
+                    CmdLine.Add(additionalCompilerOptions);
+                }
+
+                return CmdLine;
+            }
+
             private Strings GetCompilerFlags(GenerationContext context)
             {
                 // If the file is modified, we don't want to use optimization
                 // As the user will likely want to debug this file
-                if (IsFileModifiedFromGit(Input))
+                if (IsFileModifiedFromGit(Input) || IsFileNotInRepo(Input))
                 {
                     if (!DebugCompilerFlagsPerConfig.ContainsKey(context.Configuration))
                     {
@@ -315,13 +325,13 @@ namespace Sharpmake.Generators.Generic
                         var oldCommandLineOptions = context.CommandLineOptions;
                         var oldLinkerCommandLineOptions = context.LinkerCommandLineOptions;
 
-                        // Create the commandline optoins
+                        // Create the commandline options
                         GenerateConfOptions(context);
 
                         // Save the new, debug commandline options
                         lock (CompilerFlagsPerConfigLock)
                         {
-                            DebugCompilerFlagsPerConfig[context.Configuration] = new List<string>(context.CommandLineOptions.Values);
+                            DebugCompilerFlagsPerConfig[context.Configuration] = GetCompilerCommandlineFromOptions(context.CommandLineOptions, context.Options);
                         }
 
                         // Remove the optimisation settings
@@ -339,7 +349,7 @@ namespace Sharpmake.Generators.Generic
                 }
                 else
                 {
-                    return new Strings(context.CommandLineOptions.Values);
+                    return GetCompilerCommandlineFromOptions(context.CommandLineOptions, context.Options);
                 }
             }
         }
@@ -935,6 +945,20 @@ namespace Sharpmake.Generators.Generic
             return (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
         }
 
+        private static bool IsFileNotInRepo(string filepath)
+        {
+            // If we're not working from a git repository, we can't check if a file is modified
+            if (Repo == null)
+            {
+                return true;
+            }
+
+            // Set the ignore case config value to true or we get errors here
+            Repo.Config.Set("core.ignorecase", true);
+            FileStatus status = Repo.RetrieveStatus(filepath);
+            return (status & FileStatus.NewInWorkdir) != 0;
+        }
+
         // This is the main generation function for ninja project files
         // First we generate ninja files per configuartion
         // Later we create the project files which will link to these per config ninja files
@@ -1041,7 +1065,8 @@ namespace Sharpmake.Generators.Generic
             {
                 // Modified files are not added in unity builds as it's faster to exclude them and compile them seperately
                 bool isModified = IsFileModifiedFromGit(fileToCompile);
-                if (isModified)
+                bool isNewFile = IsFileNotInRepo(fileToCompile);
+                if (isModified || isNewFile)
                 {
                     context.Builder.LogWriteLine($"Excluding {fileToCompile} from unity build as its modified");
                 }
@@ -1050,7 +1075,7 @@ namespace Sharpmake.Generators.Generic
                 bool isExcludeFromJumboBuild = context.Configuration.ResolvedSourceFilesExcludeFromJumboBuild.Contains(fileToCompile);
 
                 // when not adding to unity file, we add the source file to the result already
-                if (isModified || isExcludeFromJumboBuild)
+                if (isModified || isNewFile || isExcludeFromJumboBuild)
                 {
                     result.Add(fileToCompile);
                 }
