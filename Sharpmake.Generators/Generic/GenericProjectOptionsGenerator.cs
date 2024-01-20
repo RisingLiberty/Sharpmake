@@ -2294,6 +2294,11 @@ namespace Sharpmake.Generators.Generic
                 Options.Option(Options.Vc.Linker.LinkTimeCodeGeneration.UseFastLinkTimeCodeGeneration, () => { context.Options["LinkTimeCodeGeneration"] = "true"; context.LinkerCommandLineOptions["LinkTimeCodeGeneration"] = "-flto"; })
                 );
             }
+
+            //GenerateManifest
+            //    Enable                                  GenerateManifest="true"                 /MANIFEST
+            //    Disable                                 GenerateManifest="false"
+            SelectGenerateManifestOption(context, optionsContext);
         }
         private void GenerateGccLinkerOptions(IGenerationContext context, ProjectOptionsGenerationContext optionsContext)
         { }
@@ -2331,8 +2336,16 @@ namespace Sharpmake.Generators.Generic
                     throw new NotImplementedException("Sharpmake does not support manifestinputs without embedding the manifest!");
 
                 //var cmdManifests = manifestInputs.Select(p => FastBuild.Bff.CmdLineConvertIncludePathsFunc(context, optionsContext.Resolver, p, "/manifestinput:"));
+                Compiler compiler = GetContextCompiler(context);
 
-                context.LinkerCommandLineOptions["ManifestInputs"] = manifestInputs.JoinStrings($"{Util.DoubleQuotes} /manifestinput:{Util.DoubleQuotes}", $"/manifestinput:{Util.DoubleQuotes}") + Util.DoubleQuotes;
+                if (compiler == Compiler.Clang)
+                {
+                    context.LinkerCommandLineOptions["ManifestInputs"] = manifestInputs.JoinStrings($"{Util.DoubleQuotes} -Xlinker /manifestinput:{Util.DoubleQuotes}", $"-Xlinker /manifestinput:{Util.DoubleQuotes}") + Util.DoubleQuotes;
+                }
+                else
+                {
+                    context.LinkerCommandLineOptions["ManifestInputs"] = manifestInputs.JoinStrings($"{Util.DoubleQuotes} /manifestinput:{Util.DoubleQuotes}", $"/manifestinput:{Util.DoubleQuotes}") + Util.DoubleQuotes;
+                }
             }
             else
             {
@@ -2659,7 +2672,9 @@ namespace Sharpmake.Generators.Generic
                     context.Options["UACExecutionLevel"] = FileGeneratorUtilities.RemoveLineTag;
                 }
 
-                if (context.Options["EmbedManifest"] == "false")
+                string embedManifest = "false";
+                context.Options.TryGetValue("EmbedManifest", out embedManifest);
+                if (embedManifest == "false")
                 {
                     string manifestFile = optionsContext.IntermediateDirectoryRelative + Util.WindowsSeparator + context.Configuration.TargetFileFullName + context.Configuration.ManifestFileSuffix;
                     context.Options["ManifestFile"] = manifestFile;
@@ -2668,7 +2683,16 @@ namespace Sharpmake.Generators.Generic
                 else
                 {
                     context.Options["ManifestFile"] = FileGeneratorUtilities.RemoveLineTag;
-                    context.LinkerCommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
+
+                    Compiler compiler = GetContextCompiler(context);
+                    if (compiler == Compiler.MSVC)
+                    {
+                        context.LinkerCommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
+                    }
+                    else
+                    {
+                        context.LinkerCommandLineOptions["ManifestFile"] = "-Xlinker /MANIFEST:EMBED";
+                    }
                 }
             }),
             Options.Option(Options.Vc.Linker.GenerateManifest.Disable, () =>
@@ -2825,6 +2849,14 @@ namespace Sharpmake.Generators.Generic
         private static string FormatCommandLineOptionPath(IGenerationContext context, string path)
         {
             return !context.PlainOutput ? FastBuild.Bff.CurrentBffPathKeyCombine(path) : path;
+        }
+
+        private static Compiler GetContextCompiler(IGenerationContext context)
+        {
+            Compiler compiler = Compiler.MSVC;
+            context.Configuration.Target.TryGetFragment(out compiler);
+
+            return compiler;
         }
     }
 }
