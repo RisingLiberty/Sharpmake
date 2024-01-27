@@ -1429,9 +1429,18 @@ namespace Sharpmake.Generators.Generic
                 ? $" && {DeleteOutputIfExists(context)}"
                 : "";
 
+            // Here we add a manifest command line generation manually
+            // as with recent windows sdk files, the path to mt.exe is no longer added to PATH
+            // so we have to call it ourselves after the linker has finished.
+            string manifestCommandLine = "cd .";
+            if (context.Options.ContainsKey("ManifestCommandLine"))
+            {
+                manifestCommandLine = context.Options["ManifestCommandLine"];
+            }
+
             fileGenerator.WriteLine($"# Rule for linking C++ objects");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C ${Template.BuildStatement.PreBuild(context)} {impliedPrebuild} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)}\"");
+            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C ${Template.BuildStatement.PreBuild(context)} {impliedPrebuild} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)} && {manifestCommandLine}");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}{description} ${Template.BuildStatement.TargetFile(context)}");
             fileGenerator.WriteLine($"  restat = $RESTAT");
             fileGenerator.WriteLine($"");

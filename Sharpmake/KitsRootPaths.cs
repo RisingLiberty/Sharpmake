@@ -32,6 +32,12 @@ namespace Sharpmake
         private static string s_ninjaPath = "";
         private static DevEnv s_vs_for_ninja = DevEnv.vs2019;
 
+        // mt.exe is located in the Windows SDK install directory
+        // However as of recently the path to the binaries in the Win SDK dir are not longer added to PATH
+        // Therefore using a manifest file and passing it to the linker no longer works
+        // We have to call mt manually to get around this problem
+        private static string s_mt_path = "";
+
         private static readonly ConcurrentDictionary<DotNetFramework, string> s_netFxKitsDir = new ConcurrentDictionary<DotNetFramework, string>();
 
         private static readonly ConcurrentDictionary<DotNetFramework, string> s_netFxToolsDir = new ConcurrentDictionary<DotNetFramework, string>();
@@ -179,6 +185,16 @@ namespace Sharpmake
         {
             s_ninjaPath = exePath;
             s_vs_for_ninja = visualStudioVersionForNinja;
+        }
+
+        public static void SetMtPath(string mtPath)
+        {
+            s_mt_path = mtPath;
+        }
+
+        public static string GetMtPath()
+        {
+            return s_mt_path;
         }
 
         public static string GetNinjaPath()

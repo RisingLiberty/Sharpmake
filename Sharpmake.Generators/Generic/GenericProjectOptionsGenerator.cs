@@ -2336,16 +2336,33 @@ namespace Sharpmake.Generators.Generic
                     throw new NotImplementedException("Sharpmake does not support manifestinputs without embedding the manifest!");
 
                 //var cmdManifests = manifestInputs.Select(p => FastBuild.Bff.CmdLineConvertIncludePathsFunc(context, optionsContext.Resolver, p, "/manifestinput:"));
-                Compiler compiler = GetContextCompiler(context);
 
-                if (compiler == Compiler.Clang)
+                // the path to mt.exe is no longer added to PATH.
+                // The workaround is to access mt.exe directly after linking
+                // and add the manifest that way
+                // This can only be done on a Windows machine.
+                // eg. "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\mt.exe" -manifest D:\Engines\Rex\_build\config\win\utf8.manifest -outputresource:D:\Engines\Rex\.rex\build\ninja\regina\bin\debug\regina_debug_msvc.exe;#1
+                string mtPath = KitsRootPaths.GetMtPath();
+                if (string.IsNullOrEmpty(mtPath))
                 {
-                    context.LinkerCommandLineOptions["ManifestInputs"] = manifestInputs.JoinStrings($"{Util.DoubleQuotes} -Xlinker /manifestinput:{Util.DoubleQuotes}", $"-Xlinker /manifestinput:{Util.DoubleQuotes}") + Util.DoubleQuotes;
+                    DevEnv vsForNinja = KitsRootPaths.VsVersionForNinja();
+                    KitsRootEnum kitRoot = KitsRootPaths.GetUseKitsRootForDevEnv(vsForNinja);
+                    Options.Vc.General.WindowsTargetPlatformVersion platformVersion = KitsRootPaths.GetWindowsTargetPlatformVersionForDevEnv(vsForNinja);
+                    string kitRootPath = KitsRootPaths.GetRoot(kitRoot);
+                    mtPath = Path.Combine(kitRootPath, "bin", ExtensionMethods.ToVersionString(platformVersion), "x64", "mt.exe");
                 }
-                else
+
+                if (!File.Exists(mtPath))
                 {
-                    context.LinkerCommandLineOptions["ManifestInputs"] = manifestInputs.JoinStrings($"{Util.DoubleQuotes} /manifestinput:{Util.DoubleQuotes}", $"/manifestinput:{Util.DoubleQuotes}") + Util.DoubleQuotes;
+                    context.Builder.LogWarningLine($"Couldn't find \"{mtPath}\"");
                 }
+
+                context.Options["ManifestCommandLine"] = $"\"{mtPath}\" -manifest";
+                foreach (string manifest in manifestInputs)
+                {
+                    context.Options["ManifestCommandLine"] += $" {manifest}";
+                }
+                context.Options["ManifestCommandLine"] += $" -outputresource:{Path.Combine(context.Configuration.TargetPath, context.Configuration.TargetFileFullNameWithExtension)}";
             }
             else
             {
@@ -2683,16 +2700,6 @@ namespace Sharpmake.Generators.Generic
                 else
                 {
                     context.Options["ManifestFile"] = FileGeneratorUtilities.RemoveLineTag;
-
-                    Compiler compiler = GetContextCompiler(context);
-                    if (compiler == Compiler.MSVC)
-                    {
-                        context.LinkerCommandLineOptions["ManifestFile"] = "/MANIFEST:EMBED";
-                    }
-                    else
-                    {
-                        context.LinkerCommandLineOptions["ManifestFile"] = "-Xlinker /MANIFEST:EMBED";
-                    }
                 }
             }),
             Options.Option(Options.Vc.Linker.GenerateManifest.Disable, () =>
