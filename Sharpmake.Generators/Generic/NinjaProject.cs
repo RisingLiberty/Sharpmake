@@ -874,6 +874,8 @@ namespace Sharpmake.Generators.Generic
         private static readonly string NinjaExtension = ".ninja";
         private static readonly string ProjectExtension = ".nproj";
 
+        private List<string> UnityExcludedFiles = new List<string>();
+
         // It's possible a user downloaded a zip from github instead of cloning
         // In that case, the directory is invalid and repo is null
         private static Repository Repo = Repository.IsValid(Directory.GetCurrentDirectory()) 
@@ -1063,6 +1065,15 @@ namespace Sharpmake.Generators.Generic
 
             foreach (string fileToCompile in filesToCompile)
             {
+                // Use a cached result so we don't have to hit git API
+                bool shouldExcludeCache = UnityExcludedFiles.Contains(fileToCompile);
+
+                if (shouldExcludeCache)
+                {
+                    result.Add(fileToCompile);
+                    continue;
+                }
+
                 // Modified files are not added in unity builds as it's faster to exclude them and compile them seperately
                 bool isModified = IsFileModifiedFromGit(fileToCompile);
                 bool isNewFile = IsFileNotInRepo(fileToCompile);
@@ -1077,6 +1088,7 @@ namespace Sharpmake.Generators.Generic
                 // when not adding to unity file, we add the source file to the result already
                 if (isModified || isNewFile || isExcludeFromJumboBuild)
                 {
+                    UnityExcludedFiles.Add(fileToCompile);
                     result.Add(fileToCompile);
                 }
                 else
