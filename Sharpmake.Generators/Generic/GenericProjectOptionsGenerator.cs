@@ -2357,7 +2357,7 @@ namespace Sharpmake.Generators.Generic
                     context.Builder.LogWarningLine($"Couldn't find \"{mtPath}\"");
                 }
 
-                context.Options["ManifestCommandLine"] = $"\"{mtPath}\" -manifest";
+                context.Options["ManifestCommandLine"] = $"\"{mtPath}\" -nologo -manifest";
                 foreach (string manifest in manifestInputs)
                 {
                     context.Options["ManifestCommandLine"] += $" {manifest}";
