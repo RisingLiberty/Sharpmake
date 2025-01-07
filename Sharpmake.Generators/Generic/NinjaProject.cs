@@ -39,6 +39,7 @@ namespace Sharpmake.Generators.Generic
             public bool PlainOutput { get { return true; } }
             public Project Project { get; }
             public Compiler Compiler { get; }
+            public RepositoryStatus RepoStatus { get; }
 
             public Project.Configuration Configuration { get; set; }
 
@@ -98,7 +99,7 @@ namespace Sharpmake.Generators.Generic
 
             public FastBuildMakeCommandGenerator FastBuildMakeCommandGenerator { get; }
 
-            public GenerationContext(Builder builder, string projectPath, Project project, Project.Configuration configuration)
+            public GenerationContext(Builder builder, string projectPath, Project project, Project.Configuration configuration, RepositoryStatus repoStatus)
             {
                 Builder = builder;
 
@@ -113,6 +114,8 @@ namespace Sharpmake.Generators.Generic
 
                 Configuration = configuration;
                 Compiler = configuration.Target.GetFragment<Compiler>();
+
+                RepoStatus = repoStatus;
             }
 
             public void Reset()
@@ -273,6 +276,7 @@ namespace Sharpmake.Generators.Generic
                         {
                             flags.Add("-fsanitize=fuzzer");
                         }
+                        flags.Add("-H");
                         break;
                     case Compiler.GCC:
                         flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
@@ -311,7 +315,7 @@ namespace Sharpmake.Generators.Generic
             {
                 // If the file is modified, we don't want to use optimization
                 // As the user will likely want to debug this file
-                if (IsFileModifiedFromGit(Input) || IsFileNotInRepo(Input))
+                if (IsFileModifiedFromGit(context.RepoStatus, Input) || IsFileNotInRepo(Input))
                 {
                     if (!DebugCompilerFlagsPerConfig.ContainsKey(context.Configuration))
                     {
@@ -436,8 +440,11 @@ namespace Sharpmake.Generators.Generic
                 {
                     foreach (Project.Configuration config in Context.Configuration.ResolvedDependencies)
                     {
-                        string fullTargetPath = FullNinjaTargetPath(config);
-                        fileGenerator.Write($" {fullTargetPath}");
+                        if (config.Output != Project.Configuration.OutputType.Utility)
+                        {
+                            string fullTargetPath = FullNinjaTargetPath(config);
+                            fileGenerator.Write($" {fullTargetPath}");
+                        }
                     }
                 }
                 fileGenerator.WriteLine("");
@@ -881,6 +888,8 @@ namespace Sharpmake.Generators.Generic
         private static Repository Repo = Repository.IsValid(Directory.GetCurrentDirectory()) 
             ? new Repository(Directory.GetCurrentDirectory()) 
             : null;
+        RepositoryStatus RepoStatus = null;
+
 
         // Take in a list of flags and merge them into 1 string
         private static string MergeMultipleFlagsToString(Strings options, bool addQuotes = false, string perOptionPrefix = "")
@@ -933,7 +942,7 @@ namespace Sharpmake.Generators.Generic
             return result;
         }
 
-        private static bool IsFileModifiedFromGit(string filepath)
+        private static bool IsFileModifiedFromGit(RepositoryStatus status, string filepath)
         {
             // If we're not working from a git repository, we can't check if a file is modified
             if (Repo == null)
@@ -941,10 +950,34 @@ namespace Sharpmake.Generators.Generic
                 return false;
             }
 
-            // Set the ignore case config value to true or we get errors here
-            Repo.Config.Set("core.ignorecase", true);
-            FileStatus status = Repo.RetrieveStatus(filepath);
-            return (status & FileStatus.ModifiedInIndex) != 0 || (status & FileStatus.ModifiedInWorkdir) != 0;
+            bool modifiedOrAdded = false;
+            modifiedOrAdded = status.Added.Where(entry => Util.PathIsSame(Path.Combine(Repo.Info.WorkingDirectory, entry.FilePath), filepath)).ToList().Count > 0;
+            if (modifiedOrAdded)
+            {
+                return true;
+            }
+            modifiedOrAdded = status.Modified.Where(entry =>  Util.PathIsSame(Path.Combine(Repo.Info.WorkingDirectory, entry.FilePath), filepath)).ToList().Count > 0;
+            if (modifiedOrAdded)
+            {
+                return true;
+            }
+            modifiedOrAdded = status.Staged.Where(entry =>  Util.PathIsSame(Path.Combine(Repo.Info.WorkingDirectory, entry.FilePath), filepath)).ToList().Count > 0;
+            if (modifiedOrAdded)
+            {
+                return true;
+            }
+            modifiedOrAdded = status.RenamedInIndex.Where(entry =>  Util.PathIsSame(Path.Combine(Repo.Info.WorkingDirectory, entry.FilePath), filepath)).ToList().Count > 0;
+            if (modifiedOrAdded)
+            {
+                return true;
+            }
+            modifiedOrAdded = status.RenamedInWorkDir.Where(entry =>  Util.PathIsSame(Path.Combine(Repo.Info.WorkingDirectory, entry.FilePath), filepath)).ToList().Count > 0;
+            if (modifiedOrAdded)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static bool IsFileNotInRepo(string filepath)
@@ -961,6 +994,13 @@ namespace Sharpmake.Generators.Generic
             return (status & FileStatus.NewInWorkdir) != 0;
         }
 
+        public NinjaProject()
+        {
+            // Ignore case here or we get errors
+            Repo.Config.Set("core.ignorecase", true);
+            RepoStatus = Repo?.RetrieveStatus();
+        }
+
         // This is the main generation function for ninja project files
         // First we generate ninja files per configuartion
         // Later we create the project files which will link to these per config ninja files
@@ -975,7 +1015,12 @@ namespace Sharpmake.Generators.Generic
             // Loop over each configuration and generate a ninja file for each one of them
             foreach (var config in configurations)
             {
-                GenerationContext context = new GenerationContext(builder, projectFilePath, project, config);
+                GenerationContext context = new GenerationContext(builder, projectFilePath, project, config, RepoStatus);
+
+                if (config.Output == Project.Configuration.OutputType.Utility)
+                {
+                    continue; // We don't need to generate anything for utility projects as they don't produce an output
+                }
 
                 if (config.Output == Project.Configuration.OutputType.Dll && context.Compiler == Compiler.GCC)
                 {
@@ -1075,7 +1120,7 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 // Modified files are not added in unity builds as it's faster to exclude them and compile them seperately
-                bool isModified = IsFileModifiedFromGit(fileToCompile);
+                bool isModified = IsFileModifiedFromGit(RepoStatus, fileToCompile);
                 bool isNewFile = IsFileNotInRepo(fileToCompile);
                 if (isModified || isNewFile)
                 {
