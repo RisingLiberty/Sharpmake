@@ -1372,6 +1372,17 @@ namespace Sharpmake
                     [DevEnvVersion(minimum = DevEnv.vs2019)]
                     Enable
                 }
+
+                /// <summary>
+                /// Enable big object creation
+                /// Increasing the address capacity to Int32.Max()
+                /// </summary>
+                public enum BigObj
+                {
+                    Enable,
+                    [Default]
+                    Disable
+                }
             }
 
             public static class CodeAnalysis

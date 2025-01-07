@@ -1145,6 +1145,13 @@ namespace Sharpmake.Generators.Generic
                 }
             }
 
+            // Options.Vc.Compiler.BigObj
+            context.SelectOption
+                (
+                Options.Option(Options.Vc.Compiler.BigObj.Enable, () => { context.CommandLineOptions["BigObj"] = "/bigobj"; }),
+                Options.Option(Options.Vc.Compiler.BigObj.Disable, () => { context.CommandLineOptions["BigObj"] = FileGeneratorUtilities.RemoveLineTag; })
+                );
+
             optionsContext.HasClrSupport = clrSupport;
         }
         private void GenerateClangCompilerOptions(IGenerationContext context, ProjectOptionsGenerationContext optionsContext)
