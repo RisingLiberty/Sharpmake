@@ -276,7 +276,6 @@ namespace Sharpmake.Generators.Generic
                         {
                             flags.Add("-fsanitize=fuzzer");
                         }
-                        flags.Add("-H");
                         break;
                     case Compiler.GCC:
                         flags.Add(" -D_M_X64"); // used in corecrt_stdio_config.h
@@ -1031,7 +1030,7 @@ namespace Sharpmake.Generators.Generic
 
                 // If we support unity files, we need to update the files we use for compilation
                 // to use the unity files instead and not the actual source files of the project
-                if (config.Options.Contains(Options.Vc.Compiler.JumboBuild.Enable))
+                if (!config.Options.Contains(Options.Vc.Compiler.JumboBuild.Disable))
                 {
                     filesToCompile = GenerateUnityFiles(context, filesToCompile);
                 }
@@ -1120,11 +1119,16 @@ namespace Sharpmake.Generators.Generic
                 }
 
                 // Modified files are not added in unity builds as it's faster to exclude them and compile them seperately
-                bool isModified = IsFileModifiedFromGit(RepoStatus, fileToCompile);
-                bool isNewFile = IsFileNotInRepo(fileToCompile);
-                if (isModified || isNewFile)
+                bool isModified = false;
+                bool isNewFile = false;
+                if (context.Configuration.Options.Contains(Options.Vc.Compiler.JumboBuild.EnableWithAdaptive))
                 {
-                    context.Builder.LogWriteLine($"Excluding {fileToCompile} from unity build as its modified");
+                    isModified = IsFileModifiedFromGit(RepoStatus, fileToCompile);
+                    isNewFile = IsFileNotInRepo(fileToCompile);
+                    if (isModified || isNewFile)
+                    {
+                        context.Builder.LogWriteLine($"Excluding {fileToCompile} from unity build as its modified");
+                    }
                 }
 
                 // of course we don't want to include files the user has specified that we shouldn't
@@ -1495,9 +1499,13 @@ namespace Sharpmake.Generators.Generic
                 manifestCommandLine = context.Options["ManifestCommandLine"];
             }
 
+            // Default libs need to be linked LAST
+            // this is because the global operator new can be defined in one of these
+            // and if they get linked in before your own libraries do, you'll get multiple defined symbol errors in the linker
+
             fileGenerator.WriteLine($"# Rule for linking C++ objects");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C ${Template.BuildStatement.PreBuild(context)} {impliedPrebuild} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.LinkerResponseFile(context)} && ${Template.BuildStatement.PostBuild(context)} && {manifestCommandLine}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}cmd.exe /C ${Template.BuildStatement.PreBuild(context)} {impliedPrebuild} && \"{GetLinkerPath(context)}\" ${Template.BuildStatement.ImplicitLinkerFlags(context)} ${Template.BuildStatement.ImplicitLinkerPaths(context)} ${Template.BuildStatement.LinkerPaths(context)} ${Template.BuildStatement.LinkerLibraries(context)} ${Template.BuildStatement.LinkerFlags(context)} ${Template.BuildStatement.LinkerResponseFile(context)} ${Template.BuildStatement.ImplicitLinkerLibraries(context)} && ${Template.BuildStatement.PostBuild(context)} && {manifestCommandLine}");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}{description} ${Template.BuildStatement.TargetFile(context)}");
             fileGenerator.WriteLine($"  restat = $RESTAT");
             fileGenerator.WriteLine($"");

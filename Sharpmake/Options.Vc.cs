@@ -1364,13 +1364,18 @@ namespace Sharpmake
                 /// </summary>
                 /// <remarks>
                 /// Merges multiple translation units together
+                /// Adaptive allows for modified files to be excluded from unity builds
+                /// and not enable optimizations for them
+                /// This speeds up compilation and improves debugging quality
                 /// </remarks>
                 public enum JumboBuild
                 {
                     [Default]
                     Disable,
                     [DevEnvVersion(minimum = DevEnv.vs2019)]
-                    Enable
+                    Enable,
+                    [DevEnvVersion(minimum = DevEnv.vs2019)]
+                    EnableWithAdaptive 
                 }
 
                 /// <summary>
