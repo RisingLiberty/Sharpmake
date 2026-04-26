@@ -1196,8 +1196,10 @@ namespace Sharpmake.Generators.VisualStudio
 
                 using (resolver.NewScopedParameter("toolsVersion", Util.GetToolVersionString(devenv)))
                 {
+                    DevEnv devEnvForTool = devenv != DevEnv.ninja ? devenv : KitsRootPaths.VsVersionForNinja();
+
                     // xml begin header
-                    switch (devenv)
+                    switch (devEnvForTool)
                     {
                         case DevEnv.vs2015:
                             Write(Template.Project.ProjectBegin, writer, resolver);

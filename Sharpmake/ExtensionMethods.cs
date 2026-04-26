@@ -198,7 +198,13 @@ namespace Sharpmake
 
         public static string GetVisualProjectToolsVersionString(this DevEnv visualVersion)
         {
-            switch (visualVersion)
+            DevEnv devEnv = visualVersion;
+            if (visualVersion == DevEnv.ninja)
+            {
+                devEnv = KitsRootPaths.VsVersionForNinja();
+            }
+
+            switch (devEnv)
             {
                 case DevEnv.vs2015:
                     return "14.0";
@@ -215,7 +221,13 @@ namespace Sharpmake
 
         public static int GetVisualMajorVersion(this DevEnv visualVersion)
         {
-            switch (visualVersion)
+            DevEnv devEnv = visualVersion;
+            if (visualVersion == DevEnv.ninja)
+            {
+                devEnv = KitsRootPaths.VsVersionForNinja();
+            }
+
+            switch (devEnv)
             {
                 case DevEnv.vs2015:
                     return 14;
@@ -237,7 +249,13 @@ namespace Sharpmake
 
         public static string GetDefaultPlatformToolset(this DevEnv visualVersion)
         {
-            switch (visualVersion)
+            DevEnv devEnv = visualVersion;
+            if (visualVersion == DevEnv.ninja)
+            {
+                devEnv = KitsRootPaths.VsVersionForNinja();
+            }
+
+            switch (devEnv)
             {
                 case DevEnv.vs2015:
                     return "v140";
