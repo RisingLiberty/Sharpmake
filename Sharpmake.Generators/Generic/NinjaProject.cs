@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Reflection;
 using LibGit2Sharp;
 using System.Runtime.Serialization;
+using Sharpmake.Generators.VisualStudio;
 
 namespace Sharpmake.Generators.Generic
 {
@@ -759,10 +760,31 @@ namespace Sharpmake.Generators.Generic
                 string postBuildCommand = "";
                 string suffix = " && ";
 
-                foreach (var command in context.Configuration.EventPostBuild)
+                Project.Configuration conf = context.Configuration;
+                foreach (var command in conf.EventPostBuild)
                 {
                     postBuildCommand += command;
                     postBuildCommand += suffix;
+                }
+
+                // add a dependency copy if needed (eg dll copies to output directory)
+                if (conf.Output == Project.Configuration.OutputType.Exe || conf.ExecuteTargetCopy)
+                {
+                    var relativePostBuildCopies = new List<KeyValuePair<string, string>>();
+                    relativePostBuildCopies.AddRange(conf.ResolvedTargetCopyFiles.Select(x => new KeyValuePair<string, string>(x, conf.TargetCopyFilesPath)));
+                    relativePostBuildCopies.AddRange(conf.EventPostBuildCopies);
+                    relativePostBuildCopies.AddRange(conf.ResolvedTargetCopyFilesToSubDirectory.Select(x => new KeyValuePair<string, string>(x.Key, Path.Combine(conf.TargetPath, x.Value))));
+
+                    //var copies = ProjectOptionsGenerator.ConvertPostBuildCopiesToRelative(context.Configuration, context.ProjectDirectory);
+
+                    foreach (var copy in relativePostBuildCopies)
+                    {
+                        var sourceFile = copy.Key;
+                        var destinationFolder = copy.Value;
+
+                        postBuildCommand += conf.CreateTargetCopyCommand(sourceFile, destinationFolder, context.ProjectDirectory);
+                        postBuildCommand += suffix;
+                    }
                 }
 
                 // remove trailing && if possible
