@@ -440,7 +440,11 @@ namespace Sharpmake.Generators.Generic
                 {
                     foreach (Project.Configuration config in Context.Configuration.ResolvedDependencies)
                     {
-                        if (config.Output != Project.Configuration.OutputType.Utility)
+                        if (config.Output != Project.Configuration.OutputType.Utility && 
+                            config.Output != Project.Configuration.OutputType.DotNetWindowsApp &&
+                            config.Output != Project.Configuration.OutputType.DotNetClassLibrary &&
+                            config.Output != Project.Configuration.OutputType.DotNetConsoleApp
+                            )
                         {
                             string fullTargetPath = FullNinjaTargetPath(config);
                             fileGenerator.Write($" {fullTargetPath}");

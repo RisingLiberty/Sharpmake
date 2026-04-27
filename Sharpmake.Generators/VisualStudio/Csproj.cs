@@ -1272,8 +1272,20 @@ namespace Sharpmake.Generators.VisualStudio
                 }
             }
 
+            List<string> configNames = new List<string>();
+            List<string> platformNames = new List<string>();
+            foreach (Project.Configuration conf in _projectConfigurationList)
+            {
+                configNames.Add(conf.Name);
+                platformNames.Add(Util.GetPlatformString(conf.Platform, conf.Project, conf.Target));
+            }
+            configNames = configNames.Distinct().ToList();
+            platformNames = platformNames.Distinct().ToList();
+
             GeneratedAssemblyConfigTemplate generatedAssemblyConfigTemplate = new GeneratedAssemblyConfigTemplate(project.GeneratedAssemblyConfig, isNetCoreProjectSchema, RemoveLineTag);
 
+            using (resolver.NewScopedParameter("configurationNames", string.Join(";", configNames)))
+            using (resolver.NewScopedParameter("platformNames", string.Join(";", platformNames)))
             using (resolver.NewScopedParameter("project", project))
             using (resolver.NewScopedParameter("guid", projectPropertyGuid))
             using (resolver.NewScopedParameter("options", options[_projectConfigurationList[0]]))
@@ -3138,7 +3150,7 @@ namespace Sharpmake.Generators.VisualStudio
                 options.ExplicitDefines.Add("VSTO40");
             }
 
-            if (conf.DefaultOption == Options.DefaultTarget.Debug)
+            if (Options.HasOption<Options.CSharp.Optimize>(conf) && Options.GetObject<Options.CSharp.Optimize>(conf) == Options.CSharp.Optimize.Disabled)
             {
                 options.ExplicitDefines.Add("DEBUG");
                 options.ExplicitDefines.Add("TRACE");

@@ -121,6 +121,8 @@ namespace Sharpmake.Generators.VisualStudio
     <UseWpf>[options.UseWpf]</UseWpf>
     <UseWindowsForms>[options.UseWindowsForms]</UseWindowsForms>
     <Nullable>[options.Nullable]</Nullable>
+    <Configurations>[configurationNames]</Configurations>
+    <Platforms>[platformNames]</Platforms>
   </PropertyGroup>
 ";
 
@@ -129,6 +131,7 @@ namespace Sharpmake.Generators.VisualStudio
 
                 public static string ProjectConfigurationsGeneral =
 @"  <PropertyGroup Condition=""[projectConfigurationCondition]"">
+    <Configuration>[conf.Name]</Configuration>
     <PlatformTarget>[platformName]</PlatformTarget>
     <DebugSymbols>[options.DebugSymbols]</DebugSymbols>
     <DebugType>[options.DebugType]</DebugType>
