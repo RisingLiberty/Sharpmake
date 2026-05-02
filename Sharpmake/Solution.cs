@@ -338,6 +338,8 @@ namespace Sharpmake
                         }
 
                         var dependenciesConfiguration = configurationProject.Configuration.GetRecursiveDependencies();
+                        dependenciesConfiguration.AddRange(configurationProject.Configuration.RuntimeDependencies);
+
                         // TODO: Slow LINQ? May be better to create this list as part of GetRecursiveDependencies
                         if (!configurationProject.Configuration.IsFastBuild && configurationProject.Configuration.ResolvedDependencies.Any(d => d.IsFastBuild))
                             unlinkedList.Add(configurationProject.Configuration);

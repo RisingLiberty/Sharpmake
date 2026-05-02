@@ -812,6 +812,7 @@ namespace Sharpmake.Generators.Generic
             {
                 public string name { get; set; }
                 public string ninja_file { get; set; }
+                public string output_path { get; set; }
                 public List<string> dependencies { get; set; }
                 public List<string> runtime_dependencies { get; set; }
 
@@ -819,6 +820,7 @@ namespace Sharpmake.Generators.Generic
                 {
                     name = config.Name;
                     ninja_file = GetPerConfigFilePath(config);
+                    output_path = Path.Combine(config.TargetPath, config.TargetFileFullNameWithExtension);
                     dependencies = GetBuildDependencies(config);
                     runtime_dependencies = GetRuntimeDependencies(config);
                 }

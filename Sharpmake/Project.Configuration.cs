@@ -1201,7 +1201,7 @@ namespace Sharpmake
             public UniqueList<Configuration> ForceUsingDependencies = new UniqueList<Configuration>();
             public UniqueList<Configuration> GenericBuildDependencies = new UniqueList<Configuration>();
             internal UniqueList<Configuration> BuildOrderDependencies = new UniqueList<Configuration>();
-            internal UniqueList<Configuration> RuntimeDependencies = new UniqueList<Configuration>();
+            public UniqueList<Configuration> RuntimeDependencies = new UniqueList<Configuration>();
 
             /// <summary>
             /// Gets the list of public dependencies for .NET projects.
@@ -3245,7 +3245,6 @@ namespace Sharpmake
                                     if (dependencySetting == DependencySetting.Runtime)
                                     {
                                         RuntimeDependencies.Add(dependency);
-                                        dependency.AddPublicDependency(Target, Project.GetType());
 
                                         if (!string.IsNullOrEmpty(dependency.CustomBuildSettings.BuildCommand))
                                         {
@@ -3358,7 +3357,6 @@ namespace Sharpmake
                                 if (dependencySetting == DependencySetting.Runtime)
                                 {
                                     RuntimeDependencies.Add(dependency);
-                                    dependency.AddPublicDependency(Target, Project.GetType(), DependencySetting.OnlyBuildOrder);
                                     string buildDependencyCommand = $"dotnet build {dependency.ProjectFullFileNameWithExtension}";
                                     if (dependency.CustomBuildSettings != null && !string.IsNullOrEmpty(dependency.CustomBuildSettings.BuildCommand))
                                     {
