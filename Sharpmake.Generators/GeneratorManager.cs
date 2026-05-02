@@ -84,6 +84,11 @@ namespace Sharpmake.Generators
             if (project is CSharpProject)
             {
                 CsprojGenerator.Generate(builder, project, configurations, projectFile, generatedFiles, skipFiles);
+                DevEnv devEnv = configurations[0].Target.GetFragment<DevEnv>();
+                if (devEnv == DevEnv.ninja)
+                {
+                    NinjaProjectGenerator.Generate(builder, project, configurations, projectFile, generatedFiles, skipFiles);
+                }
             }
             else if (project is PythonProject)
             {

@@ -72,6 +72,13 @@ namespace Sharpmake
         IncludeHeadersForClangtools = 1 << 7,
 
         /// <summary>
+        /// The dependent project gets build before the dependency but the dependency project is include in the dependency graph
+        /// A good example would be script assemblies that depend on the dependent project's output but get loaded at runtime by the dependent project
+        /// </summary>
+        Runtime = 1 << 8,
+
+
+        /// <summary>
         /// Specifies that the dependent project inherits the dependency's library files, library
         /// paths, include paths and defined symbols.
         /// </summary>
@@ -1194,6 +1201,7 @@ namespace Sharpmake
             public UniqueList<Configuration> ForceUsingDependencies = new UniqueList<Configuration>();
             public UniqueList<Configuration> GenericBuildDependencies = new UniqueList<Configuration>();
             internal UniqueList<Configuration> BuildOrderDependencies = new UniqueList<Configuration>();
+            internal UniqueList<Configuration> RuntimeDependencies = new UniqueList<Configuration>();
 
             /// <summary>
             /// Gets the list of public dependencies for .NET projects.
@@ -3097,7 +3105,7 @@ namespace Sharpmake
                         var childTuple = Tuple.Create(
                             childNode.Key,
                             new PropagationSettings(
-                                isRoot ? childNode.Key._dependencySetting : (propagationSetting._dependencySetting & childNode.Key._dependencySetting), // propagate the parent setting by masking it
+                                isRoot || childNode.Key._dependencySetting == DependencySetting.Runtime ? childNode.Key._dependencySetting : (propagationSetting._dependencySetting & childNode.Key._dependencySetting), // propagate the parent setting by masking it
                                 isRoot, // only children of root are immediate
                                 (isRoot || hasPublicPathToRoot) && childNode.Value == DependencyType.Public,
                                 (isImmediate || hasPublicPathToImmediate) && childNode.Value == DependencyType.Public,
@@ -3111,21 +3119,24 @@ namespace Sharpmake
                     if (isRoot)
                         continue;
 
-                    if (hasPublicPathToRoot)
-                    {
-                        resolvedPrivateDependencies.Remove(dependency);
-                        resolvedPublicDependencies.Add(dependency);
-                    }
-                    else if (!resolvedPublicDependencies.Contains(dependency))
-                    {
-                        resolvedPrivateDependencies.Add(dependency);
+                    var dependencySetting = propagationSetting._dependencySetting;
+                    if (dependencySetting != DependencySetting.Runtime)
+                    { 
+                        if (hasPublicPathToRoot)
+                        {
+                            resolvedPrivateDependencies.Remove(dependency);
+                            resolvedPublicDependencies.Add(dependency);
+                        }
+                        else if (!resolvedPublicDependencies.Contains(dependency))
+                        {
+                            resolvedPrivateDependencies.Add(dependency);
+                        }
                     }
 
                     bool isExport = dependency.Project.SharpmakeProjectType == ProjectTypeAttribute.Export;
                     bool compile = dependency.Project.SharpmakeProjectType == ProjectTypeAttribute.Generate ||
                                    dependency.Project.SharpmakeProjectType == ProjectTypeAttribute.Compile;
 
-                    var dependencySetting = propagationSetting._dependencySetting;
                     if (dependencySetting != DependencySetting.OnlyBuildOrder)
                     {
                         _resolvedEventPreBuildExe.AddRange(dependency.EventPreBuildExe);
@@ -3231,6 +3242,16 @@ namespace Sharpmake
                                         ForceUsingDependencies.Add(dependency);
                                     if (dependencySetting == DependencySetting.OnlyBuildOrder)
                                         BuildOrderDependencies.Add(dependency);
+                                    if (dependencySetting == DependencySetting.Runtime)
+                                    {
+                                        RuntimeDependencies.Add(dependency);
+                                        dependency.AddPublicDependency(Target, Project.GetType());
+
+                                        if (!string.IsNullOrEmpty(dependency.CustomBuildSettings.BuildCommand))
+                                        {
+                                            EventPostBuild.Add(dependency.CustomBuildSettings.BuildCommand);
+                                        }
+                                    }
 
                                     // check if that case is valid: dll with additional libs
                                     if (isExport && !goesThroughDLL)
@@ -3334,6 +3355,18 @@ namespace Sharpmake
                         case OutputType.DotNetClassLibrary:
                         case OutputType.DotNetWindowsApp:
                             {
+                                if (dependencySetting == DependencySetting.Runtime)
+                                {
+                                    RuntimeDependencies.Add(dependency);
+                                    dependency.AddPublicDependency(Target, Project.GetType(), DependencySetting.OnlyBuildOrder);
+                                    string buildDependencyCommand = $"dotnet build {dependency.ProjectFullFileNameWithExtension}";
+                                    if (dependency.CustomBuildSettings != null && !string.IsNullOrEmpty(dependency.CustomBuildSettings.BuildCommand))
+                                    {
+                                        buildDependencyCommand = dependency.CustomBuildSettings.BuildCommand;
+                                    }
+                                    EventPostBuild.Add(buildDependencyCommand);
+                                }
+
                                 if (dependencySetting.HasFlag(DependencySetting.AdditionalUsingDirectories) ||
                                     dependencySetting.HasFlag(DependencySetting.ForceUsingAssembly))
                                     AdditionalUsingDirectories.Add(dependency.TargetPath);
@@ -3349,7 +3382,7 @@ namespace Sharpmake
                                     ReferenceOutputAssembly = referenceOutputAssembly
                                 };
 
-                                if (!resolvedDotNetPublicDependencies.Contains(dotNetDependency))
+                                if (!resolvedDotNetPublicDependencies.Contains(dotNetDependency) && dependencySetting != DependencySetting.Runtime)
                                 {
                                     if (hasPublicPathToRoot)
                                     {
@@ -3427,12 +3460,22 @@ namespace Sharpmake
                     DependencyNode visitedNode = visiting.Pop();
                     Configuration visitedConfiguration = visitedNode._configuration;
 
+                    if (visitedNode._dependencySetting == DependencySetting.Runtime)
+                    {
+                        continue;
+                    }
+
                     // if we already know that configuration, just reattach its children to the current node
                     DependencyNode alreadyExisting = null;
                     if (visited.TryGetValue(visitedConfiguration, out alreadyExisting))
                     {
                         foreach (var child in alreadyExisting._childNodes)
                         {
+                            if (child.Key._dependencySetting == DependencySetting.Runtime && child.Key._configuration == conf)
+                            {
+                                continue;
+                            }
+
                             System.Diagnostics.Debug.Assert(!visitedNode._childNodes.ContainsKey(child.Key));
                             visitedNode._childNodes.Add(child.Key, child.Value);
                         }
@@ -3460,6 +3503,11 @@ namespace Sharpmake
                                 dependencySetting = DependencySetting.Default;
 
                             DependencyNode childNode = new DependencyNode(dependencyConf, dependencySetting);
+                            if (childNode._dependencySetting == DependencySetting.Runtime && childNode._configuration == conf)
+                            {
+                                continue;
+                            }
+
                             System.Diagnostics.Debug.Assert(!visitedNode._childNodes.ContainsKey(childNode));
                             visitedNode._childNodes.Add(childNode, dependencyType);
 

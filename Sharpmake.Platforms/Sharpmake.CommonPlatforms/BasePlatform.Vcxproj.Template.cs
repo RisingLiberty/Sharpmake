@@ -193,7 +193,7 @@ namespace Sharpmake
     <EnableUnitySupport>[options.JumboBuild]</EnableUnitySupport>
     <IncludeInUnityFile>True</IncludeInUnityFile>
     <MaxFilesInUnityFile>[options.MaxFilesPerUnityFile]</MaxFilesInUnityFile>
-    <MinFilesInUnityFile>2></MinFilesInUnityFile>
+    <MinFilesInUnityFile>2</MinFilesInUnityFile>
     <MinUnityFiles>1</MinUnityFiles>
     <OrderInUnityFile>100</OrderInUnityFile>
     <UnityFilesDirectory>.</UnityFilesDirectory> 

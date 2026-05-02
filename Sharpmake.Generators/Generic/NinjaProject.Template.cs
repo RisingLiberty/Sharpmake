@@ -14,11 +14,11 @@
 
             public static string PerConfigFormat(GenerationContext context)
             {
-                return $"{context.Project.Name}_{context.Configuration.Name}_{context.Compiler}".ToLower();
+                return $"{context.Project.Name}_{context.Configuration.Name}".ToLower();
             }
             public static string PerConfigFolderFormat(GenerationContext context)
             {
-                return System.IO.Path.Combine(context.Compiler.ToString(), context.Configuration.Name);
+                return System.IO.Path.Combine(context.Configuration.Name);
             }
 
             public static string CleanBuildStatement(GenerationContext context)
@@ -64,10 +64,13 @@
                     switch (context.Configuration.Output)
                     {
                         case Project.Configuration.OutputType.Exe:
+                        case Project.Configuration.OutputType.DotNetConsoleApp:
+                        case Project.Configuration.OutputType.DotNetWindowsApp:
                             return LinkExe(context);
                         case Project.Configuration.OutputType.Lib:
                             return LinkLib(context);
                         case Project.Configuration.OutputType.Dll:
+                        case Project.Configuration.OutputType.DotNetClassLibrary:
                             return LinkDll(context);
                         default:
                             throw new Error("Invalid output type for rule");
@@ -90,6 +93,18 @@
 
             public static class BuildStatement
             {
+                public static string BuildCsStatement(GenerationContext context)
+                {
+                    return $"dotnet build \"{context.Configuration.ProjectFullFileNameWithExtension}\"";
+                }
+                public static string RebuildCsStatement(GenerationContext context)
+                {
+                    return $"dotnet build \"{context.Configuration.ProjectFullFileNameWithExtension}\" --no-incremental";
+                }
+                public static string CleanCsStatement(GenerationContext context)
+                {
+                    return $"dotnet clean \"{context.Configuration.ProjectFullFileNameWithExtension}\"";
+                }
                 public static string Defines(GenerationContext context)
                 {
                     return $"{PerConfigFormat(context)}_DEFINES";

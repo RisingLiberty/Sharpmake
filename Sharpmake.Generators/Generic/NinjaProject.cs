@@ -808,97 +808,38 @@ namespace Sharpmake.Generators.Generic
 
         public class ProjectFile
         {
-            // Custom converter that we use to write the configurations
-            public class ConfigConverter : JsonConverter<Dictionary<Compiler, CompilerConfiguration>>
-            {
-                public override void Write(Utf8JsonWriter writer, Dictionary<Compiler, CompilerConfiguration> value, JsonSerializerOptions options)
-                {
-                    // Configs are structured per compiler, per config
-                    writer.WriteStartObject(); // Write the opening brace
-
-                    foreach (var kvp in value)
-                    {
-                        Compiler compiler = kvp.Key;
-                        WriteCompilerConfigs(writer, options, compiler, kvp.Value);
-                    }
-                    
-                    writer.WriteEndObject(); // Write the closing brace
-                }
-
-                public override Dictionary<Compiler, CompilerConfiguration> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-                {
-                    // Implement the Read method if needed
-                    throw new NotImplementedException();
-                }
-
-                private void WriteCompilerConfigs(Utf8JsonWriter writer, JsonSerializerOptions options, Compiler compiler, CompilerConfiguration config)
-                {
-                    writer.WritePropertyName(compiler.ToString().ToLower()); // write compiler name
-
-                    writer.WriteStartObject();  // Write the opening brace
-                    
-                    foreach (var kvp2 in config.configs)
-                    {
-                        writer.WritePropertyName(kvp2.Key); // write config name
-                        JsonSerializer.Serialize(writer, kvp2.Value, options); // write config settings
-                    }
-                    
-                    writer.WriteEndObject(); // Write the closing brace
-                }
-            }
-
             public class ProjectFileConfig
             {
+                public string name { get; set; }
                 public string ninja_file { get; set; }
                 public List<string> dependencies { get; set; }
+                public List<string> runtime_dependencies { get; set; }
 
-                public ProjectFileConfig(Compiler compiler, Project.Configuration config)
+                public ProjectFileConfig(Project.Configuration config)
                 {
-                    ninja_file = GetPerConfigFilePath(config, compiler);
+                    name = config.Name;
+                    ninja_file = GetPerConfigFilePath(config);
                     dependencies = GetBuildDependencies(config);
-                }
-            }
-
-            public class CompilerConfiguration
-            {
-                public Dictionary<string, ProjectFileConfig> configs { get; set; }
-
-                private Compiler CompilerName;
-
-                public CompilerConfiguration(Compiler compilerName)
-                {
-                    CompilerName = compilerName;
-                    configs = new Dictionary<string, ProjectFileConfig>();
-                }
-
-                public void Add(Project.Configuration config)
-                {
-                    configs.Add(config.Target.ProjectConfigurationName.ToLower(), new ProjectFileConfig(CompilerName, config));
+                    runtime_dependencies = GetRuntimeDependencies(config);
                 }
             }
 
             public string name { get; set; }
             public string root { get; set; }
 
-            [JsonConverter(typeof(ConfigConverter))]
-            public Dictionary<Compiler, CompilerConfiguration> configs { get; set; }
+            //[JsonConverter(typeof(ConfigConverter))]
+            public Dictionary<string, ProjectFileConfig> configs { get; set; }
             
             public ProjectFile(string projectName, string projectRoot, List<Project.Configuration> configurations)
             {
                 name = projectName;
                 root = projectRoot;
-                configs = new Dictionary<Compiler, CompilerConfiguration>();
+                configs = new Dictionary<string, ProjectFileConfig>();
 
                 // Loop over all the configs of this project and link compiler with configs
                 foreach (var config in configurations)
                 {
-                    Compiler Compiler = config.Target.GetFragment<Compiler>();
-                    if (configs.ContainsKey(Compiler) == false)
-                    {
-                        configs.Add(Compiler, new CompilerConfiguration(Compiler));
-                    }
-
-                    configs[Compiler].Add(config);
+                    configs.Add(config.Name, new ProjectFileConfig(config));
                 }
             }
         }
@@ -1050,6 +991,14 @@ namespace Sharpmake.Generators.Generic
                 if (config.Output == Project.Configuration.OutputType.Dll && context.Compiler == Compiler.GCC)
                 {
                     throw new Error("Shared library for GCC is currently not supported");
+                }
+
+                if (config.Output == Project.Configuration.OutputType.DotNetClassLibrary || 
+                    config.Output == Project.Configuration.OutputType.DotNetConsoleApp || 
+                    config.Output == Project.Configuration.OutputType.DotNetWindowsApp)
+                {
+                    WriteDotNetConfigFile(context, generatedFiles, skipFiles);
+                    continue;
                 }
 
                 Strings filesToCompile = GetFilesToCompile(project, config);
@@ -1224,6 +1173,21 @@ namespace Sharpmake.Generators.Generic
             return buildDependencies;
         }
 
+        // Get the build dependencies (dependencies that need to be build before this config of this project gets build)
+        // The build dependencies are listed in json format
+        private static List<string> GetRuntimeDependencies(Project.Configuration configuration)
+        {
+            List<string> runtimeDependencies = new List<string>();
+
+            foreach (var config in configuration.RuntimeDependencies)
+            {
+                string projectPath = FullProjectPath(config.Project);
+                runtimeDependencies.Add(projectPath);
+            }
+
+            return runtimeDependencies;
+        }
+
         // Given a project, it'll find the project path where it should be generated
         private static string FullProjectPath(Project project)
         {
@@ -1237,6 +1201,49 @@ namespace Sharpmake.Generators.Generic
             }
 
             throw new Error("Failed to find project path");
+        }
+
+        // Write the ninja file for dotnet projects.
+        // This ninja files simply points to the Visual Studio project and calls dotnet on it
+        private void WriteDotNetConfigFile(GenerationContext context, List<string> generatedFiles, List<string> skipFiles)
+        {
+            var fileGenerator = new FileGenerator();
+
+            GenerateHeader(fileGenerator, context);
+
+            fileGenerator.WriteLine($"");
+            context.CommandLineOptions = new GenericProjectOptionsGenerator.GenericCmdLineOptions();
+            context.LinkerCommandLineOptions = new GenericProjectOptionsGenerator.GenericCmdLineOptions();
+
+            //// build rule
+            fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.LinkToUse(context)}");
+            fileGenerator.WriteLine($"{Template.CommandBegin} {Template.BuildStatement.BuildCsStatement(context)}");
+            fileGenerator.WriteLine($"{Template.DescriptionBegin} Build C# project");
+            fileGenerator.WriteLine($"");
+            fileGenerator.WriteLine($"");
+
+            // clean rule
+            fileGenerator.WriteLine($"{Template.RuleBegin} {Template.RuleStatement.Clean(context)}");
+            fileGenerator.WriteLine($"{Template.CommandBegin} {Template.BuildStatement.CleanCsStatement(context)}");
+            fileGenerator.WriteLine($"{Template.DescriptionBegin} Clean C# project");
+            fileGenerator.WriteLine($"");
+            fileGenerator.WriteLine($"");
+
+            string outputPath = FullNinjaTargetPath(context.Configuration);
+            LinkStatement linkStatement = new LinkStatement(context, outputPath, new Strings());
+            fileGenerator.WriteLine(linkStatement.ToString());
+
+            GenerateProjectBuildsForDotnet(fileGenerator, context);
+
+            string filePath = GetPerConfigFilePath(context.Configuration);
+            if (SaveFileGeneratorToDisk(fileGenerator, context.Builder, context.Project, filePath))
+            {
+                generatedFiles.Add(filePath);
+            }
+            else
+            {
+                skipFiles.Add(filePath);
+            }
         }
 
         // Write the ninja file that's unique for this configuration
@@ -1254,10 +1261,7 @@ namespace Sharpmake.Generators.Generic
 
             var fileGenerator = new FileGenerator();
 
-            GenerateHeader(fileGenerator);
-
-            fileGenerator.WriteLine("");
-            fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.IntermediatePath, ".ninja")}");
+            GenerateHeader(fileGenerator, context);
 
             GenerateRules(fileGenerator, context);
 
@@ -1279,7 +1283,7 @@ namespace Sharpmake.Generators.Generic
 
             GenerateProjectBuilds(fileGenerator, context);
 
-            string filePath = GetPerConfigFilePath(context.Configuration, context.Compiler);
+            string filePath = GetPerConfigFilePath(context.Configuration);
 
             if (SaveFileGeneratorToDisk(fileGenerator, context.Builder, context.Project, filePath))
             {
@@ -1292,15 +1296,15 @@ namespace Sharpmake.Generators.Generic
         }
 
         // Get the filename for a ninja file that's unique for its configuration
-        private static string GetPerConfigFileName(Project.Configuration config, Compiler compiler)
+        private static string GetPerConfigFileName(Project.Configuration config)
         {
-            return $"{config.Project.Name}.{config.Target.ProjectConfigurationName}.{compiler}{NinjaExtension}";
+            return $"{config.Project.Name}.{config.Target.ProjectConfigurationName}{NinjaExtension}";
         }
 
         // Get the full filepath of a ninja file that's unique for its configuration
-        private static string GetPerConfigFilePath(Project.Configuration config, Compiler compiler)
+        private static string GetPerConfigFilePath(Project.Configuration config)
         {
-            return Path.Combine(config.ProjectPath, "ninja", GetPerConfigFileName(config, compiler));
+            return Path.Combine(config.ProjectPath, "ninja", GetPerConfigFileName(config));
         }
 
         // Write the value out if its not empty
@@ -1460,7 +1464,7 @@ namespace Sharpmake.Generators.Generic
 
         // Write out the header to the file generator.
         // This header is shared by all ninja files generated through Sharpmake
-        private void GenerateHeader(FileGenerator fileGenerator)
+        private void GenerateHeader(FileGenerator fileGenerator, GenerationContext context)
         {
             fileGenerator.WriteLine($"# !! Sharpmake generated file !!");
             fileGenerator.WriteLine($"# All edits will be overwritten on the next sharpmake run");
@@ -1468,6 +1472,8 @@ namespace Sharpmake.Generators.Generic
             fileGenerator.WriteLine($"# Make sure we have the right version of Ninja");
             fileGenerator.WriteLine($"ninja_required_version = 1.1");
             fileGenerator.WriteLine($"");
+            fileGenerator.WriteLine($"");
+            fileGenerator.WriteLine($"builddir = {Path.Combine(context.Configuration.IntermediatePath, ".ninja")}");
         }
 
         // Generate the rules that specify what we support from a ninja file
@@ -1539,14 +1545,14 @@ namespace Sharpmake.Generators.Generic
             // Cleaning
             fileGenerator.WriteLine($"# Rule to clean all built files");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.Clean(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t clean");
+            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration)} -t clean");
             fileGenerator.WriteLine($"{Template.DescriptionBegin}Cleaning all build files");
             fileGenerator.WriteLine($"");
 
             // Compiler DB
             fileGenerator.WriteLine($"# Rule to generate compiler db");
             fileGenerator.WriteLine($"{Template.RuleBegin}{Template.RuleStatement.CompilerDB(context)}");
-            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration, context.Compiler)} -t compdb {Template.RuleStatement.CompileCppFile(context)} {Template.RuleStatement.CompileCFile(context)}");
+            fileGenerator.WriteLine($"{Template.CommandBegin}{KitsRootPaths.GetNinjaPath()} -f {GetPerConfigFilePath(context.Configuration)} -t compdb {Template.RuleStatement.CompileCppFile(context)} {Template.RuleStatement.CompileCFile(context)}");
             fileGenerator.WriteLine($"");
         }
 
@@ -1583,6 +1589,18 @@ namespace Sharpmake.Generators.Generic
             return $"{config.TargetFileFullName}".ToLower();
         }
 
+        // Generate the different build statements for a dotnet project that act as the main interface
+        // These are build, clean and compdb generation
+        private void GenerateProjectBuildsForDotnet(FileGenerator fileGenerator, GenerationContext context)
+        {
+            //eg. build app.exe: phony d$:\testing\ninjasharpmake\.rex\build\ninja\app\debug\bin\app.exe
+            string phony_name = GeneratePhonyName(context.Configuration, context.Compiler);
+            fileGenerator.WriteLine($"{Template.BuildBegin}{phony_name}: phony {FullNinjaTargetPath(context.Configuration)}");
+            fileGenerator.WriteLine($"{Template.BuildBegin}{Template.CleanBuildStatement(context)}: {Template.RuleStatement.Clean(context)}");
+            fileGenerator.WriteLine($"");
+
+            fileGenerator.WriteLine($"default {phony_name}");
+        }
         // Generate the different build statements that act as the main interface
         // These are build, clean and compdb generation
         private void GenerateProjectBuilds(FileGenerator fileGenerator, GenerationContext context)
